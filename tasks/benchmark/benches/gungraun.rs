@@ -21,7 +21,7 @@ use swc_next_ecma_transformer::{
     Transformer, TransformerOptions, es2022::ES2022Options, normalize::Normalizer,
     proposal::ProposalOptions, typescript::TypeScriptOptions,
 };
-use swc_next_type_strip::strip_types;
+use swc_next_type_strip::{Options as StripOptions, strip_types};
 
 const MINIFIER_SEMANTIC: &str =
     include_str!("../../../crates/swc_ecma_minifier/tests/fixtures/semantic/combined/input.js");
@@ -199,12 +199,11 @@ fn bench_transform(input: TransformInput) {
     black_box((ast, result));
 }
 
-fn type_strip_options(lang: Lang) -> Options {
-    Options {
+fn type_strip_options(lang: Lang, skip_erasable_syntax_check: bool) -> StripOptions {
+    StripOptions {
         source_type: SourceType::Module,
         lang,
-        preserve_parens: true,
-        comments: CommentMode::None,
+        skip_erasable_syntax_check,
     }
 }
 
@@ -213,10 +212,22 @@ fn type_strip_options(lang: Lang) -> Options {
         Callgrind::with_args(["--dump-before=*benchmark_parse_boundary"]),
     )
 )]
-#[bench::astro_config(ASTRO_CONFIG, type_strip_options(Lang::Ts))]
-#[bench::effect_schema_ast(EFFECT_SCHEMA_AST, type_strip_options(Lang::Ts))]
-#[bench::hono_types(HONO_TYPES, type_strip_options(Lang::Ts))]
-fn bench_type_strip(source: &str, options: Options) {
+#[bench::astro_config(ASTRO_CONFIG, type_strip_options(Lang::Ts, false))]
+#[bench::effect_schema_ast(EFFECT_SCHEMA_AST, type_strip_options(Lang::Ts, false))]
+#[bench::hono_types(HONO_TYPES, type_strip_options(Lang::Ts, false))]
+fn bench_type_strip(source: &str, options: StripOptions) {
+    black_box(strip_types(black_box(source), black_box(options)));
+}
+
+#[library_benchmark(
+    config = LibraryBenchmarkConfig::default().tool(
+        Callgrind::with_args(["--dump-before=*benchmark_parse_boundary"]),
+    )
+)]
+#[bench::astro_config(ASTRO_CONFIG, type_strip_options(Lang::Ts, true))]
+#[bench::effect_schema_ast(EFFECT_SCHEMA_AST, type_strip_options(Lang::Ts, true))]
+#[bench::hono_types(HONO_TYPES, type_strip_options(Lang::Ts, true))]
+fn bench_type_strip_unchecked(source: &str, options: StripOptions) {
     black_box(strip_types(black_box(source), black_box(options)));
 }
 
@@ -401,6 +412,11 @@ library_benchmark_group!(name = transform, benchmarks = bench_transform);
 library_benchmark_group!(name = type_strip, benchmarks = bench_type_strip);
 
 library_benchmark_group!(
+    name = type_strip_unchecked,
+    benchmarks = bench_type_strip_unchecked
+);
+
+library_benchmark_group!(
     name = visit,
     benchmarks = [bench_visit, bench_visit_mut, bench_traverse]
 );
@@ -411,6 +427,14 @@ main!(
             Callgrind::with_args(["--branch-sim=no", "--cache-sim=no",]).format([EventKind::Ir]),
         ),
     library_benchmark_groups = [
-        parser, semantic, resolver, codegen, minifier, transform, type_strip, visit
+        parser,
+        semantic,
+        resolver,
+        codegen,
+        minifier,
+        transform,
+        type_strip,
+        type_strip_unchecked,
+        visit
     ]
 );

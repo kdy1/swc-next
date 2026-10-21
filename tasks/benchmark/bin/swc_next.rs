@@ -5,6 +5,7 @@ use clap::Parser as _;
 use swc_next_allocator::Allocator;
 use swc_next_ecma_ast::{Lang, SourceType};
 use swc_next_ecma_parser::{CommentMode, NoTokenParserConfig, Options, Parser};
+use swc_next_type_strip::{Options as StripOptions, strip_types};
 
 fn main() {
     let args = Args::parse();
@@ -15,10 +16,15 @@ fn main() {
         comments: CommentMode::None,
         ..Options::default()
     };
+    let strip_options = StripOptions {
+        source_type: options.source_type,
+        lang: options.lang,
+        ..StripOptions::default()
+    };
 
     for _ in 0..args.iterations.get() {
         if args.operation == Operation::TypeStrip {
-            let result = swc_next_type_strip::strip_types(&source, options);
+            let result = strip_types(&source, strip_options);
             assert!(result.diagnostics.is_empty(), "type stripping failed");
             black_box(result);
             continue;

@@ -22,9 +22,10 @@ use swc_next_ecma_ast::{
     TsTypeAssertion, TsTypeParameterDeclaration, TsTypeParameterInstantiation, VariableDeclaration,
     VariableDeclarator, Visit, VisitWith, WhileStatement, WithStatement,
 };
-pub use swc_next_ecma_ast::{Diagnostic, Label, Lang, Severity, Span};
-pub use swc_next_ecma_parser::Options;
-use swc_next_ecma_parser::{CommentMode, ParseReturn, Parser, Token, TokenParserConfig, TokenTag};
+pub use swc_next_ecma_ast::{Diagnostic, Label, Lang, Severity, SourceType, Span};
+use swc_next_ecma_parser::{
+    CommentMode, Options as ParserOptions, ParseReturn, Parser, Token, TokenParserConfig, TokenTag,
+};
 
 use crate::token_cursor::TokenCursor;
 
@@ -36,6 +37,24 @@ const UNSUPPORTED_LANG_MESSAGE: &str = "TypeError: Unsupported lang variant";
 const ERASABLE_SYNTAX_ONLY_MESSAGE: &str =
     "SyntaxError: This syntax is not allowed when `erasableSyntaxOnly` is enabled";
 
+/// Options for [`strip_types`].
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct Options {
+    /// How the source is parsed and evaluated. Defaults to [`SourceType::Module`].
+    pub source_type: SourceType,
+    /// Language variant of the source.
+    ///
+    /// Must be [`Lang::Ts`] or [`Lang::Tsx`] (defaults to [`Lang::Js`]).
+    /// [`Lang::Tsx`] preserves JSX syntax in the output without lowering it.
+    pub lang: Lang,
+    /// Skips `erasableSyntaxOnly` checks for inputs already validated by TypeScript.
+    /// Defaults to `false`.
+    ///
+    /// Parser diagnostics are still reported, and non-erasable syntax is still
+    /// erased rather than lowered.
+    pub skip_erasable_syntax_check: bool,
+}
+
 /// Stripped output and diagnostics returned by [`strip_types`].
 #[derive(Debug, Eq, PartialEq)]
 pub struct StripResult<'source> {
@@ -46,9 +65,10 @@ pub struct StripResult<'source> {
     pub code: Cow<'source, str>,
     /// Diagnostics in source order.
     ///
-    /// Contains parser diagnostics and at most one `erasableSyntaxOnly` error for
-    /// the first unsupported TypeScript construct. When non-empty, [`Self::code`]
-    /// is recovery output and may not preserve program semantics.
+    /// Contains parser diagnostics and, unless [`Options::skip_erasable_syntax_check`]
+    /// is enabled, at most one `erasableSyntaxOnly` error for the first unsupported
+    /// TypeScript construct. When non-empty, [`Self::code`] is recovery output and
+    /// may not preserve program semantics.
     pub diagnostics: Vec<Diagnostic<'static>>,
 }
 
@@ -63,15 +83,14 @@ pub struct StripResult<'source> {
 ///   parameter properties, `import =`, `export =`, and `<T>` type assertions) are
 ///   not lowered. Declarations are erased as whole statements, parameter property
 ///   modifiers and `<T>` prefixes are blanked in place, and a diagnostic is
-///   reported.
+///   reported unless [`Options::skip_erasable_syntax_check`] is enabled.
 /// - Stripping is purely syntactic: names are not resolved and `const enum` values
 ///   are not inlined, so type-only imports and exports must use explicit `type`
 ///   modifiers.
 ///
 /// [`Options::lang`] must be [`Lang::Ts`] or [`Lang::Tsx`]; [`Lang::Tsx`] preserves
 /// JSX syntax without lowering it, and other [`Lang`] variants return `source`
-/// unchanged with an error diagnostic. [`Options::preserve_parens`] and
-/// [`Options::comments`] have no effect on the output.
+/// unchanged with an error diagnostic.
 #[cfg_attr(feature = "benchmarking", inline(never))]
 pub fn strip_types(source: &str, options: Options) -> StripResult<'_> {
     if !matches!(options.lang, Lang::Ts | Lang::Tsx) {
@@ -81,9 +100,12 @@ pub fn strip_types(source: &str, options: Options) -> StripResult<'_> {
         };
     }
 
-    let mut parser_options = options;
-    parser_options.preserve_parens = true;
-    parser_options.comments = CommentMode::None;
+    let parser_options = ParserOptions {
+        source_type: options.source_type,
+        lang: options.lang,
+        preserve_parens: true,
+        comments: CommentMode::None,
+    };
     let allocator = Allocator::default();
     let parse = Parser::init(&allocator, source, parser_options, TokenParserConfig).parse();
     #[cfg(feature = "benchmarking")]
@@ -99,6 +121,7 @@ pub fn strip_types(source: &str, options: Options) -> StripResult<'_> {
         ast: &ast,
         tokens: TokenCursor::new(source, tokens.as_slice()),
         edits: EditPlan::default(),
+        skip_erasable_syntax_check: options.skip_erasable_syntax_check,
         diagnostic: None,
         item_context: ItemContext::default(),
         expr_frames: ArenaVec::new_in(&allocator),
@@ -134,6 +157,7 @@ struct TypeEraser<'ast, 'source, 'tokens> {
     ast: &'ast Ast<'ast>,
     tokens: TokenCursor<'source, 'tokens>,
     edits: EditPlan,
+    skip_erasable_syntax_check: bool,
     diagnostic: Option<Diagnostic<'static>>,
     item_context: ItemContext,
     expr_frames: ArenaVec<'ast, ExprFrame>,
@@ -283,8 +307,12 @@ impl TypeEraser<'_, '_, '_> {
         }
     }
 
+    fn needs_erasable_syntax_check(&self) -> bool {
+        !self.skip_erasable_syntax_check && self.diagnostic.is_none()
+    }
+
     fn report_erasable_syntax_only(&mut self, span: Span) {
-        if self.diagnostic.is_none() {
+        if self.needs_erasable_syntax_check() {
             self.diagnostic = Some(Diagnostic::error(ERASABLE_SYNTAX_ONLY_MESSAGE, span));
         }
     }
@@ -591,7 +619,7 @@ impl TypeEraser<'_, '_, '_> {
 
     fn erase_module(&mut self, node: TsModuleDeclaration, statement_span: Span) {
         self.erase_statement(statement_span);
-        if self.diagnostic.is_none()
+        if self.needs_erasable_syntax_check()
             && let Some(span) = module::check(node, self.ast)
         {
             self.report_erasable_syntax_only(span);
@@ -600,7 +628,7 @@ impl TypeEraser<'_, '_, '_> {
 
     fn erase_global(&mut self, node: TsGlobalDeclaration, statement_span: Span) {
         self.erase_statement(statement_span);
-        if self.diagnostic.is_none()
+        if self.needs_erasable_syntax_check()
             && let Some(span) = module::check_global(node, self.ast)
         {
             self.report_erasable_syntax_only(span);
@@ -904,7 +932,7 @@ impl<'ast> Visit<'ast> for TypeEraser<'ast, '_, '_> {
         let decorators = node.decorators(self.ast);
         let modifiers_start = modifiers_start(span.start, decorators, self.ast);
         let parameter_start = node.parameter(self.ast).span(self.ast).start;
-        if self.diagnostic.is_none() {
+        if self.needs_erasable_syntax_check() {
             let diagnostic_span = self
                 .tokens
                 .first_in_range(modifiers_start, parameter_start)
