@@ -94,6 +94,9 @@ test("printSync uses numeric values when raw text is invalid", () => {
     assert.equal(printNumber(1, "1_"), "1;\n");
     assert.equal(printNumber(12, "1__2"), "12;\n");
     assert.equal(printNumber(16, "0x_10"), "16;\n");
+    assert.equal(printNumber(0, "0_0"), "0;\n");
+    assert.equal(printNumber(0.5, "00.5"), "0.5;\n");
+    assert.equal(printNumber(100, "1e+_2"), "100;\n");
     assert.equal(printNumber(1, "1\n"), "1;\n");
     assert.equal(printNumber(Infinity, "Infinity"), "1 / 0;\n");
 
@@ -123,6 +126,8 @@ test("printSync preserves valid numeric raw text matching the value", () => {
     assert.equal(print(".5;"), ".5;\n");
     assert.equal(print("1.;"), "1.;\n");
     assert.equal(print("077;"), "077;\n");
+    assert.equal(print("00;"), "00;\n");
+    assert.equal(print("1.e2;"), "1.e2;\n");
     assert.equal(print("08.5e1;"), "08.5e1;\n");
   }
 });
