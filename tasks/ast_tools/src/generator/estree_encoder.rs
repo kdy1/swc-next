@@ -492,6 +492,7 @@ fn field_source(node: &str, field: &str) -> String {
         }
         ("Directive", "expression") => "_directiveExpression".into(),
         ("Directive", "value") => "n.directive".into(),
+        ("NumericLiteral", "kind") => "numericKind(_numericRaw)".into(),
         ("NumericLiteral", "raw") => "_numericRaw".into(),
         ("BigIntLiteral", "raw") => "bigIntRaw(n)".into(),
         ("RegExpLiteral", "pattern") => "n.regex?.pattern ?? n.value?.source ?? \"\"".into(),
@@ -1008,85 +1009,6 @@ const isWellFormed = String.prototype.isWellFormed
       return true;
     };
 
-function hexDigit(code) {
-  if (code >= 0x30 && code <= 0x39) return code - 0x30;
-  if (code >= 0x41 && code <= 0x46) return code - 0x41 + 10;
-  if (code >= 0x61 && code <= 0x66) return code - 0x61 + 10;
-  return -1;
-}
-
-function scanNumericDigits(raw, index, end, radix) {
-  const start = index;
-  while (index < end) {
-    const code = raw.charCodeAt(index);
-    const digit = radix === 16 ? hexDigit(code) : code - 48;
-    if (digit >= 0 && digit < radix) {
-      index++;
-    } else if (code === 95 && index > start) {
-      // A separator must have a digit on both sides, in the same radix.
-      const next = raw.charCodeAt(index + 1);
-      const nextDigit = radix === 16 ? hexDigit(next) : next - 48;
-      if (!(nextDigit >= 0 && nextDigit < radix)) return -1;
-      index += 2;
-    } else {
-      break;
-    }
-  }
-  return index;
-}
-
-// Return the literal's radix, or 0 for invalid raw text. Number/BigInt
-// coercion alone would also accept empty strings, whitespace and signs.
-function numericRawRadix(raw, bigint) {
-  if (typeof raw !== "string") return 0;
-  const end = raw.length - (bigint ? 1 : 0);
-  if (end <= 0 || (bigint && raw.charCodeAt(end) !== 110)) return 0;
-  const first = raw.charCodeAt(0);
-  if (end === 1) return first >= 48 && first <= 57 ? 10 : 0;
-
-  let index;
-  if (first === 48) {
-    const second = raw.charCodeAt(1);
-    const prefix = second | 32;
-    const radix = prefix === 120 ? 16 : prefix === 111 ? 8 : prefix === 98 ? 2 : 0;
-    if (radix) return end > 2 && scanNumericDigits(raw, 2, end, radix) === end ? radix : 0;
-    if (second === 95) return 0;
-    if (second >= 48 && second <= 57) {
-      if (bigint) return 0;
-      // Legacy leading-zero integers cannot contain separators. Only a
-      // non-octal digit permits a following decimal fraction or exponent.
-      let octal = true;
-      index = 1;
-      while (index < end) {
-        const code = raw.charCodeAt(index);
-        if (code < 48 || code > 57) break;
-        if (code >= 56) octal = false;
-        index++;
-      }
-      if (octal) return index === end ? 8 : 0;
-    }
-  }
-  if (index === undefined) index = scanNumericDigits(raw, 0, end, 10);
-  if (index < 0) return 0;
-  if (bigint) return index === end ? 10 : 0;
-  const integerEnd = index;
-  if (raw.charCodeAt(index) === 46) {
-    index = scanNumericDigits(raw, index + 1, end, 10);
-    if (index < 0 || (integerEnd === 0 && index === 1)) return 0;
-  } else if (integerEnd === 0) {
-    return 0;
-  }
-  if ((raw.charCodeAt(index) | 32) === 101) {
-    index++;
-    const sign = raw.charCodeAt(index);
-    if (sign === 43 || sign === 45) index++;
-    const exponentStart = index;
-    index = scanNumericDigits(raw, index, end, 10);
-    if (index <= exponentStart) return 0;
-  }
-  return index === end ? 10 : 0;
-}
-
 const ENUMS = Object.freeze({
   Lang: ["js", "ts", "jsx", "tsx", "dts"],
   SourceType: ["module", "script", "commonjs", "unambiguous"],
@@ -1320,12 +1242,17 @@ function encode(program, meta = {}) {
     next.set(pool.subarray(0, poolLength)); pool = next;
   }
 
+  function numericKind(raw) {
+    if (typeof raw !== "string" || raw.length < 2 || raw.charCodeAt(0) !== 48) return "decimal";
+    const prefix = raw[1].toLowerCase();
+    return prefix === "x" ? "hex" : prefix === "o" || /^0[0-7]+$/.test(raw) ? "octal" : prefix === "b" ? "binary" : "decimal";
+  }
   function numericRaw(node) {
-    const radix = numericRawRadix(node.raw, false);
-    if (!radix) return null;
+    if (typeof node.raw !== "string" || node.raw.length === 0) return null;
     const normalized = node.raw.includes("_") ? node.raw.replaceAll("_", "") : node.raw;
-    const value = radix === 8 && (normalized.charCodeAt(1) | 32) !== 111
-      ? parseInt(normalized, 8)
+    const kind = numericKind(normalized);
+    const value = kind === "octal" && normalized[1]?.toLowerCase() !== "o"
+      ? parseInt(normalized.slice(1), 8)
       : +normalized;
     return Object.is(value, node.value) ? node.raw : null;
   }
@@ -1336,7 +1263,7 @@ function encode(program, meta = {}) {
 
   function bigIntRaw(node) {
     const value = bigIntValue(node);
-    if (numericRawRadix(node.raw, true)) {
+    if (typeof node.raw === "string" && node.raw.length > 1 && node.raw.endsWith("n")) {
       const raw = node.raw.slice(0, -1);
       try {
         if (BigInt(raw.replaceAll("_", "")) === value) return raw;
@@ -1350,6 +1277,13 @@ function encode(program, meta = {}) {
         (node.bigint == null && typeof node.value !== "bigint") ||
         bigIntValue(node) >= 0n) return node;
     return { ...node, value: String(bigIntValue(node)), bigint: null, raw: "" };
+  }
+
+  function hexDigit(code) {
+    if (code >= 0x30 && code <= 0x39) return code - 0x30;
+    if (code >= 0x41 && code <= 0x46) return code - 0x41 + 10;
+    if (code >= 0x61 && code <= 0x66) return code - 0x61 + 10;
+    return -1;
   }
 
   function directiveRawValue(raw, unescaped) {

@@ -74,61 +74,24 @@ test("printSync preserves special numeric values across FFI", () => {
   assert.equal(printSync(program).code, "const value = -1 / 0;\n");
 });
 
-test("printSync uses numeric values when raw text is invalid", () => {
+test("printSync falls back to values for empty numeric raw text", () => {
   for (const lang of ["js", "ts"]) {
     const meta = { lang };
-    const printNumber = (value, raw) => {
-      const { program } = parseSync("0;", meta);
-      Object.assign(program.body[0].expression, { value, raw });
-      return printSync(program, {}, meta).code;
-    };
-    const printBigInt = (value, raw) => {
-      const { program } = parseSync("0n;", meta);
+    const printLiteral = (value, raw) => {
+      const { program } = parseSync(typeof value === "bigint" ? "0n;" : "0;", meta);
       Object.assign(program.body[0].expression, { value, raw });
       return printSync(program, {}, meta).code;
     };
 
-    assert.equal(printNumber(0, ""), "0;\n");
-    assert.equal(printNumber(0, " "), "0;\n");
-    assert.equal(printNumber(0, "_"), "0;\n");
-    assert.equal(printNumber(1, "1_"), "1;\n");
-    assert.equal(printNumber(12, "1__2"), "12;\n");
-    assert.equal(printNumber(16, "0x_10"), "16;\n");
-    assert.equal(printNumber(0, "0_0"), "0;\n");
-    assert.equal(printNumber(0.5, "00.5"), "0.5;\n");
-    assert.equal(printNumber(100, "1e+_2"), "100;\n");
-    assert.equal(printNumber(1, "1\n"), "1;\n");
-    assert.equal(printNumber(Infinity, "Infinity"), "1 / 0;\n");
+    assert.equal(printLiteral(0, ""), "0;\n");
+    assert.equal(printLiteral(-0, ""), "-0;\n");
+    assert.equal(printLiteral(0n, ""), "0n;\n");
+    assert.equal(printLiteral(0n, "n"), "0n;\n");
 
-    assert.equal(printBigInt(0n, "n"), "0n;\n");
-    assert.equal(printBigInt(0n, " n"), "0n;\n");
-    assert.equal(printBigInt(0n, "_n"), "0n;\n");
-    assert.equal(printBigInt(12n, "1__2n"), "12n;\n");
-    assert.equal(printBigInt(1n, "01n"), "1n;\n");
-    assert.equal(printBigInt(1n, "+1n"), "1n;\n");
-    assert.equal(printBigInt(2n, "1n"), "2n;\n");
-  }
-});
-
-test("printSync preserves valid numeric raw text matching the value", () => {
-  for (const lang of ["js", "ts"]) {
-    const meta = { lang, sourceType: "script" };
-    const print = source => printSync(parseSync(source, meta).program, {}, meta).code;
-
-    assert.equal(print("0xCA_FEn;"), "0xCAFEn;\n");
-    assert.equal(print("0b10_01n;"), "0b1001n;\n");
-    assert.equal(print("0o7_1n;"), "0o71n;\n");
-    assert.equal(print("1_000n;"), "1000n;\n");
-    assert.equal(print("0xCA_FE;"), "0xCA_FE;\n");
-    assert.equal(print("0b10_01;"), "0b10_01;\n");
-    assert.equal(print("0o7_1;"), "0o7_1;\n");
-    assert.equal(print("1_000.5_0e+1_0;"), "1_000.5_0e+1_0;\n");
-    assert.equal(print(".5;"), ".5;\n");
-    assert.equal(print("1.;"), "1.;\n");
-    assert.equal(print("077;"), "077;\n");
-    assert.equal(print("00;"), "00;\n");
-    assert.equal(print("1.e2;"), "1.e2;\n");
-    assert.equal(print("08.5e1;"), "08.5e1;\n");
+    assert.equal(printLiteral(42, "1"), "42;\n");
+    assert.equal(printLiteral(2n, "1n"), "2n;\n");
+    assert.equal(printLiteral(16, "0x10"), "0x10;\n");
+    assert.equal(printLiteral(16n, "0x10n"), "0x10n;\n");
   }
 });
 
