@@ -31,6 +31,12 @@ const isWellFormed = String.prototype.isWellFormed
       return true;
     };
 
+// Number/BigInt conversion also accepts whitespace and empty strings. Only
+// preserve complete literal tokens, including valid separator placement.
+// Unlike $, the final assertion does not allow a trailing line terminator.
+const NUMERIC_RAW = /^(?:0[xX][\da-fA-F](?:_?[\da-fA-F])*|0[bB][01](?:_?[01])*|0[oO][0-7](?:_?[0-7])*|0[0-7]+|(?:(?:0|[1-9](?:_?\d)*|0[0-7]*[89]\d*)(?:\.(?:\d(?:_?\d)*)?)?|\.\d(?:_?\d)*)(?:[eE][+-]?\d(?:_?\d)*)?)(?![\s\S])/;
+const BIGINT_RAW = /^(?:0[xX][\da-fA-F](?:_?[\da-fA-F])*|0[bB][01](?:_?[01])*|0[oO][0-7](?:_?[0-7])*|0|[1-9](?:_?\d)*)n(?![\s\S])/;
+
 const ENUMS = Object.freeze({
   Lang: ["js", "ts", "jsx", "tsx", "dts"],
   SourceType: ["module", "script", "commonjs", "unambiguous"],
@@ -270,7 +276,7 @@ function encodeTs(program, meta = {}) {
     return prefix === "x" ? "hex" : prefix === "o" || /^0[0-7]+$/.test(raw) ? "octal" : prefix === "b" ? "binary" : "decimal";
   }
   function numericRaw(node) {
-    if (typeof node.raw !== "string") return null;
+    if (typeof node.raw !== "string" || !NUMERIC_RAW.test(node.raw)) return null;
     const normalized = node.raw.includes("_") ? node.raw.replaceAll("_", "") : node.raw;
     const kind = numericKind(normalized);
     const value = kind === "octal" && normalized[1]?.toLowerCase() !== "o"
@@ -285,7 +291,7 @@ function encodeTs(program, meta = {}) {
 
   function bigIntRaw(node) {
     const value = bigIntValue(node);
-    if (typeof node.raw === "string" && node.raw.endsWith("n")) {
+    if (typeof node.raw === "string" && BIGINT_RAW.test(node.raw)) {
       const raw = node.raw.slice(0, -1);
       try {
         if (BigInt(raw.replaceAll("_", "")) === value) return raw;
