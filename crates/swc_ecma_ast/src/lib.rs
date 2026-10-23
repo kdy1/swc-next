@@ -21,7 +21,11 @@ mod generated {
 
 use generated::ast_payload::NodePayload;
 use node_id::ExtraData;
-use swc_next_allocator::{Allocator, Idx, hash_map::HashMap as ArenaHashMap, vec::Vec as ArenaVec};
+use swc_next_allocator::{
+    Allocator,
+    hash_map::HashMap as ArenaHashMap,
+    vec::{ArenaIndexVec, Vec as ArenaVec},
+};
 
 pub use ast::*;
 pub use comment::*;
@@ -55,7 +59,7 @@ pub struct Ast<'a> {
     pub(crate) nodes: NodeData<'a>,
 
     /// Flattening AST fields.
-    extra_data: ArenaVec<'a, ExtraData>,
+    extra_data: ArenaIndexVec<'a, ExtraDataId, ExtraData>,
 
     /// Source-backed and decoded AST strings.
     strings: StringPool<'a>,
@@ -358,7 +362,7 @@ impl<'a> Ast<'a> {
             lang: Lang::Js,
             attached_comments: ArenaVec::new_in(allocator),
             nodes: NodeData::new_in(allocator),
-            extra_data: ArenaVec::with_capacity_in(0, allocator),
+            extra_data: ArenaIndexVec::with_capacity_in(0, allocator),
             strings: StringPool::new_in(allocator, source),
         }
     }
@@ -418,19 +422,12 @@ impl<'a> Ast<'a> {
 impl Ast<'_> {
     #[inline]
     fn add_extra<T: ExtraDataValue>(&mut self, value: T) -> ExtraDataId {
-        let id = self.next_extra_data_id();
-        self.extra_data.push(value.into_extra_data());
-        id
+        self.extra_data.push(value.into_extra_data())
     }
 
     #[inline]
     fn next_extra_data_id(&self) -> ExtraDataId {
-        let index = self.extra_data.len();
-        assert!(
-            index <= ExtraDataId::MAX,
-            "extra data index exceeds ExtraDataId range"
-        );
-        ExtraDataId::from_usize_unchecked(index)
+        self.extra_data.next_idx()
     }
 }
 

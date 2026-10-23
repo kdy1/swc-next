@@ -5,8 +5,7 @@
 //! Index mutations take semantic records and identifiers, not an AST. Transforms
 //! read syntax and coordinate subtree edits through TransformCtx.
 
-use oxc_index::Idx;
-use swc_next_allocator::vec::Vec as ArenaVec;
+use swc_next_allocator::vec::{ArenaIndexVec, Vec as ArenaVec};
 use swc_next_ecma_ast::{AstUtf8, NodeId, ReferenceId, ScopeId, SymbolId};
 
 use crate::{
@@ -24,14 +23,14 @@ use crate::{
 #[derive(Debug)]
 pub struct ScopeModel<'a> {
     scopes: ScopeTree<'a>,
-    symbols: ArenaVec<'a, Symbol>,
-    references: ArenaVec<'a, Reference>,
-    declarations: ArenaVec<'a, Declaration>,
+    symbols: ArenaIndexVec<'a, SymbolId, Symbol>,
+    references: ArenaIndexVec<'a, ReferenceId, Reference>,
+    declarations: ArenaIndexVec<'a, DeclarationId, Declaration>,
     redeclarations: Redeclarations<'a>,
     /// Independently growable use lists, indexed by SymbolId.
-    uses: ArenaVec<'a, ArenaVec<'a, ReferenceId>>,
-    scope_maps: ArenaVec<'a, ScopeMap<'a>>,
-    node_semantic: ArenaVec<'a, NodeSemanticId>,
+    uses: ArenaIndexVec<'a, SymbolId, ArenaVec<'a, ReferenceId>>,
+    scope_maps: ArenaIndexVec<'a, ScopeId, ScopeMap<'a>>,
+    node_semantic: ArenaIndexVec<'a, NodeId, NodeSemanticId>,
 }
 
 impl<'a> ScopeModel<'a> {
@@ -39,7 +38,7 @@ impl<'a> ScopeModel<'a> {
     /// use index into one arena vector per symbol.
     pub fn new(semantic: Semantic<'a>) -> Self {
         let allocator = semantic.use_ids.bump();
-        let uses = ArenaVec::from_iter_in(
+        let uses = ArenaIndexVec::from_iter_in(
             semantic.use_ranges.iter().map(|range| {
                 let start = range.start as usize;
                 ArenaVec::from_iter_in(
@@ -71,37 +70,37 @@ impl<'a> ScopeModel<'a> {
 
     /// The symbol with the given id.
     pub fn symbol(&self, id: SymbolId) -> Symbol {
-        self.symbols[id.index()]
+        self.symbols[id]
     }
 
     /// The reference with the given id.
     pub fn reference(&self, id: ReferenceId) -> Reference {
-        self.references[id.index()]
+        self.references[id]
     }
 
     /// The declaration with the given id.
     pub fn declaration(&self, id: DeclarationId) -> Declaration {
-        self.declarations[id.index()]
+        self.declarations[id]
     }
 
     /// The symbol declared at `node`, or `None` when the node is not a
     /// binding or member declaration site. Source-module and anonymous default
     /// export symbols do not have a node mapping.
     pub fn symbol_of(&self, node: NodeId) -> Option<SymbolId> {
-        self.node_semantic[node.index()].symbol()
+        self.node_semantic[node].symbol()
     }
 
     /// The reference recorded at `node`, or `None` when the node is
     /// not a reference site.
     pub fn reference_of(&self, node: NodeId) -> Option<ReferenceId> {
-        self.node_semantic[node.index()].reference()
+        self.node_semantic[node].reference()
     }
 
     /// The scope created by the given node, or `None` if the node is not a
     /// scope-creating site. If a node creates multiple scopes, returns the
     /// last one created (for example, the program's source-type wrapper).
     pub fn scope_of(&self, node: NodeId) -> Option<ScopeId> {
-        self.node_semantic[node.index()].scope()
+        self.node_semantic[node].scope()
     }
 
     /// The scope of the symbol's first declaration. Merged TypeScript symbols
@@ -133,21 +132,21 @@ impl<'a> ScopeModel<'a> {
     /// Every definite or possible use retained from Semantic, in source order.
     /// An uncertain reference may occur in more than one symbol's list.
     pub fn uses(&self, id: SymbolId) -> &[ReferenceId] {
-        &self.uses[id.index()]
+        &self.uses[id]
     }
 
     /// A binding owned by this lexical scope. Hoisting declarations are only
     /// recorded at their hoist target; passing-through hoisting occurrences
     /// and TypeScript source-export and member views are not retained by this model.
     pub fn binding(&self, scope: ScopeId, name: &[u8]) -> Option<SymbolId> {
-        self.scope_maps[scope.index()].get(name).copied()
+        self.scope_maps[scope].get(name).copied()
     }
 
     /// Every lexical symbol owned directly by `scope`. A hoisting `var`
     /// appears in its hoist target, not in blocks it passes through.
     pub fn bindings(&self, scope: ScopeId) -> BindingIterator<'_> {
         BindingIterator {
-            inner: self.scope_maps[scope.index()].values(),
+            inner: self.scope_maps[scope].values(),
             source: None,
         }
     }
@@ -227,7 +226,7 @@ impl<'a> ScopeModel<'a> {
         if let Some(symbol) = self.symbol_of(node) {
             return symbol;
         }
-        let declaration = DeclarationId::from_usize(self.declarations.len());
+        let declaration = self.declarations.next_idx();
         let previous = self.binding(scope, text.as_bytes());
         let existing = previous.filter(|&symbol| {
             !self
@@ -236,21 +235,21 @@ impl<'a> ScopeModel<'a> {
                 .intersects(SymbolFlags::INTERNAL_NAME)
         });
         let symbol = if let Some(symbol) = existing {
-            self.symbols[symbol.index()].flags |= flags;
+            self.symbols[symbol].flags |= flags;
             self.redeclarations
                 .entry(symbol)
                 .or_insert_with(|| ArenaVec::new_in(self.declarations.bump()))
                 .push(declaration);
             symbol
         } else {
-            let symbol = SymbolId::from_usize(self.symbols.len());
+            let symbol = self.symbols.next_idx();
             self.symbols.push(Symbol {
                 name: previous.map_or(name.into(), |symbol| self.symbol(symbol).name),
                 flags,
                 declaration,
             });
             self.uses.push(ArenaVec::new_in(self.symbols.bump()));
-            self.scope_maps[scope.index()].insert(text.as_bytes(), symbol);
+            self.scope_maps[scope].insert(text.as_bytes(), symbol);
             symbol
         };
         self.declarations.push(Declaration {
@@ -259,8 +258,8 @@ impl<'a> ScopeModel<'a> {
             scope,
             flags,
         });
-        debug_assert_eq!(self.node_semantic[node.index()], NodeSemanticId::None);
-        self.node_semantic[node.index()] = NodeSemanticId::Symbol(symbol);
+        debug_assert_eq!(self.node_semantic[node], NodeSemanticId::None);
+        self.node_semantic[node] = NodeSemanticId::Symbol(symbol);
         symbol
     }
 
@@ -288,12 +287,12 @@ impl<'a> ScopeModel<'a> {
             self.reference_of(node).is_none(),
             "reference already registered"
         );
-        let id = ReferenceId::from_usize(self.references.len());
+        let id = self.references.next_idx();
         self.references.push(reference);
-        debug_assert_eq!(self.node_semantic[node.index()], NodeSemanticId::None);
-        self.node_semantic[node.index()] = NodeSemanticId::Reference(id);
+        debug_assert_eq!(self.node_semantic[node], NodeSemanticId::None);
+        self.node_semantic[node] = NodeSemanticId::Reference(id);
         if let Some(symbol) = target {
-            self.uses[symbol.index()].push(id);
+            self.uses[symbol].push(id);
         }
         id
     }
@@ -328,7 +327,7 @@ impl ScopeModel<'_> {
             debug_assert!(parent_scope.function_body.is_none());
         }
         self.grow_to(owner.index() + 1);
-        let id = ScopeId::from_usize(self.scopes.list.len());
+        let id = self.scopes.list.next_idx();
         self.scopes.list.push(Scope {
             active: true,
             node: owner,
@@ -345,12 +344,12 @@ impl ScopeModel<'_> {
         self.scope_maps
             .push(ScopeMap::new_in(self.scopes.list.bump()));
         debug_assert!(matches!(
-            self.node_semantic[owner.index()],
+            self.node_semantic[owner],
             NodeSemanticId::None | NodeSemanticId::Scope(_)
         ));
-        self.node_semantic[owner.index()] = NodeSemanticId::Scope(id);
+        self.node_semantic[owner] = NodeSemanticId::Scope(id);
         if kind == ScopeKind::FunctionBody {
-            self.scopes.list[parent.index()].function_body = Some(id);
+            self.scopes.list[parent].function_body = Some(id);
         }
         id
     }
@@ -395,19 +394,19 @@ impl ScopeModel<'_> {
         self.grow_to(owner.index() + 1);
         if original.node != owner {
             debug_assert_eq!(self.scope_of(original.node), Some(scope));
-            self.node_semantic[original.node.index()] = NodeSemanticId::None;
+            self.node_semantic[original.node] = NodeSemanticId::None;
         }
         debug_assert!(matches!(
-            self.node_semantic[owner.index()],
+            self.node_semantic[owner],
             NodeSemanticId::None | NodeSemanticId::Scope(_)
         ));
-        self.node_semantic[owner.index()] = NodeSemanticId::Scope(scope);
+        self.node_semantic[owner] = NodeSemanticId::Scope(scope);
         if original.kind == ScopeKind::FunctionBody && kind != ScopeKind::FunctionBody {
-            self.scopes.list[parent.index()].function_body = None;
+            self.scopes.list[parent].function_body = None;
         } else if kind == ScopeKind::FunctionBody {
-            self.scopes.list[parent.index()].function_body = Some(scope);
+            self.scopes.list[parent].function_body = Some(scope);
         }
-        let current = &mut self.scopes.list[scope.index()];
+        let current = &mut self.scopes.list[scope];
         current.node = owner;
         current.kind = kind;
         current.flags = flags;
@@ -424,7 +423,7 @@ impl ScopeModel<'_> {
     pub fn move_reference_to_scope(&mut self, reference: ReferenceId, from: ScopeId, to: ScopeId) {
         debug_assert!(self.scope(from).active && self.scope(to).active);
         debug_assert_eq!(self.reference(reference).scope, from);
-        self.references[reference.index()].scope = to;
+        self.references[reference].scope = to;
     }
 
     /// Change an active non-root scope's parent while preserving its owner and internal identities.
@@ -453,10 +452,10 @@ impl ScopeModel<'_> {
         if original.kind == ScopeKind::FunctionBody {
             debug_assert_eq!(self.scope(parent).kind, ScopeKind::Function);
             debug_assert!(self.scope(parent).function_body.is_none());
-            self.scopes.list[previous.index()].function_body = None;
-            self.scopes.list[parent.index()].function_body = Some(scope);
+            self.scopes.list[previous].function_body = None;
+            self.scopes.list[parent].function_body = Some(scope);
         }
-        self.scopes.list[scope.index()].parent = Some(parent);
+        self.scopes.list[scope].parent = Some(parent);
         let target = if original.kind.is_hoist_target() {
             scope
         } else {
@@ -478,7 +477,7 @@ impl ScopeModel<'_> {
     /// ```
     pub fn set_scope_flags(&mut self, scope: ScopeId, flags: ScopeFlags) {
         debug_assert!(self.scope(scope).active);
-        self.scopes.list[scope.index()].flags = flags;
+        self.scopes.list[scope].flags = flags;
     }
 
     /// Retire an empty non-root scope and clear its detached owner's mapping without recycling its ID.
@@ -502,7 +501,7 @@ impl ScopeModel<'_> {
                 .iter_scopes()
                 .any(|entry| { entry.id != scope && entry.scope.node == original.node })
         );
-        debug_assert!(self.scope_maps[scope.index()].is_empty());
+        debug_assert!(self.scope_maps[scope].is_empty());
         debug_assert!(
             !self
                 .declarations
@@ -521,10 +520,10 @@ impl ScopeModel<'_> {
         );
         debug_assert!(original.function_body.is_none());
         if original.kind == ScopeKind::FunctionBody {
-            self.scopes.list[parent.index()].function_body = None;
+            self.scopes.list[parent].function_body = None;
         }
-        self.scopes.list[scope.index()].active = false;
-        self.node_semantic[original.node.index()] = NodeSemanticId::None;
+        self.scopes.list[scope].active = false;
+        self.node_semantic[original.node] = NodeSemanticId::None;
     }
 
     /// Refresh inherited hoist targets in a changed scope's branch without changing bindings.
@@ -542,8 +541,8 @@ impl ScopeModel<'_> {
         if previous == target {
             return;
         }
-        self.scopes.list[scope.index()].hoist_target = target;
-        for index in 0..self.scopes.list.len() {
+        self.scopes.list[scope].hoist_target = target;
+        for index in self.scopes.list.indices() {
             let current = self.scopes.list[index];
             if !current.active || current.kind.is_hoist_target() || current.hoist_target != previous
             {

@@ -17,4 +17,4 @@ swc_core     = { workspace = true, features = ["ecma_minifier"] }
 
 convert_case = { workspace = true }
 indexmap     = { workspace = true }
-oxc_index    = { workspace = true }
+swc_next_allocator = { workspace = true }

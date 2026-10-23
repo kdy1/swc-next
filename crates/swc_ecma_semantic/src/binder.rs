@@ -1,10 +1,12 @@
 use std::hash::BuildHasher;
 
 use hashbrown::HashMap;
-use oxc_index::Idx;
 use rustc_hash::FxBuildHasher;
 use swc_next_allocator::{
-    Allocator, boxed::Box as ArenaBox, hash_map::HashMap as ArenaHashMap, vec::Vec as ArenaVec,
+    Allocator, IndexSlice,
+    boxed::Box as ArenaBox,
+    hash_map::HashMap as ArenaHashMap,
+    vec::{ArenaIndexVec, Vec as ArenaVec},
 };
 use swc_next_ecma_ast::{
     AssignmentExpression, AssignmentOperator, Ast, AstUtf8, AstWtf8, BindingIdentifier, Class,
@@ -20,7 +22,8 @@ use swc_next_ecma_ast::{
 };
 
 use crate::{
-    DeclarationId, HoistingMap, NodeSemanticId, Redeclarations, ScopeMap, Semantic,
+    DeclarationId, Declarations, HoistingMap, NodeSemanticId, Redeclarations, ScopeMap, ScopeMaps,
+    Scopes, Semantic, Symbols,
     scope::{Scope, ScopeKind, ScopeTree},
 };
 
@@ -597,7 +600,7 @@ impl NameResolution {
     }
 }
 
-oxc_index::define_nonmax_u32_index_type! {
+swc_next_allocator::define_nonmax_u32_index_type! {
     struct TsMemberEnvironmentId;
 }
 
@@ -754,7 +757,7 @@ impl TsMemberView {
         hash: u64,
         name: &[u8],
     ) -> Option<TsMemberCandidates<'lookup, 'a>> {
-        let environment = &environments.environments[self.environment.index()];
+        let environment = &environments.environments[self.environment];
         let direct = environment
             .members
             .raw_entry()
@@ -820,8 +823,8 @@ struct TsMemberLookup<'a> {
 impl TsMemberLookup<'_> {
     fn visit_candidates<const PRECISE_IMPORT_ALIASES: bool>(
         &self,
-        symbols: &[Symbol],
-        import_alias_spaces: &[Option<TsResolvedAliasSpaces>],
+        symbols: &Symbols,
+        import_alias_spaces: &TsImportAliasSpaces,
         space: ReferenceSpace,
         mut accept: impl FnMut(SymbolId, BindingVisibility) -> bool,
     ) -> bool {
@@ -851,7 +854,7 @@ impl TsMemberLookup<'_> {
                         TsResolvedAliasSpaces::PROPERTY_VALUE
                             | TsResolvedAliasSpaces::UNKNOWN_PROPERTY_VALUE,
                     )
-                    .visibility(space, symbols[contribution.symbol.index()].flags)
+                    .visibility(space, symbols[contribution.symbol].flags)
             } else {
                 symbol_visibility::<PRECISE_IMPORT_ALIASES>(
                     symbols,
@@ -871,7 +874,7 @@ impl TsMemberLookup<'_> {
 #[derive(Debug)]
 struct TsMemberEnvironments<'a> {
     owners: ArenaHashMap<'a, SymbolId, TsMemberEnvironmentId>,
-    environments: ArenaVec<'a, TsMemberEnvironment<'a>>,
+    environments: ArenaIndexVec<'a, TsMemberEnvironmentId, TsMemberEnvironment<'a>>,
 }
 
 impl<'a> TsMemberEnvironments<'a> {
@@ -888,13 +891,13 @@ impl<'a> TsMemberEnvironments<'a> {
     fn new_in(allocator: &'a Allocator) -> Self {
         Self {
             owners: ArenaHashMap::new_in(allocator),
-            environments: ArenaVec::new_in(allocator),
+            environments: ArenaIndexVec::new_in(allocator),
         }
     }
 
     fn ensure(&mut self, owner: SymbolId, allocator: &'a Allocator) -> TsMemberEnvironmentId {
         *self.owners.entry(owner).or_insert_with(|| {
-            let environment = TsMemberEnvironmentId::from_usize(self.environments.len());
+            let environment = self.environments.next_idx();
             self.environments.push(TsMemberEnvironment {
                 members: TsMemberMap::new_in(allocator),
                 export_aliases: TsNamespaceExportAliasMap::new_in(allocator),
@@ -905,7 +908,7 @@ impl<'a> TsMemberEnvironments<'a> {
 
     fn get(&self, owner: SymbolId) -> Option<&TsMemberEnvironment<'a>> {
         let environment = *self.owners.get(&owner)?;
-        Some(&self.environments[environment.index()])
+        Some(&self.environments[environment])
     }
 
     fn members(&self, owner: SymbolId) -> Option<&TsMemberMap<'a>> {
@@ -913,25 +916,25 @@ impl<'a> TsMemberEnvironments<'a> {
     }
 
     fn environment(&self, environment: TsMemberEnvironmentId) -> &TsMemberMap<'a> {
-        &self.environments[environment.index()].members
+        &self.environments[environment].members
     }
 
     fn environment_mut(&mut self, environment: TsMemberEnvironmentId) -> &mut TsMemberMap<'a> {
-        &mut self.environments[environment.index()].members
+        &mut self.environments[environment].members
     }
 
     fn environment_export_aliases(
         &self,
         environment: TsMemberEnvironmentId,
     ) -> &TsNamespaceExportAliasMap<'a> {
-        &self.environments[environment.index()].export_aliases
+        &self.environments[environment].export_aliases
     }
 
     fn export_aliases_mut(
         &mut self,
         environment: TsMemberEnvironmentId,
     ) -> &mut TsNamespaceExportAliasMap<'a> {
-        &mut self.environments[environment.index()].export_aliases
+        &mut self.environments[environment].export_aliases
     }
 
     fn member(&self, environment: TsMemberEnvironmentId, name: &[u8]) -> Option<SymbolId> {
@@ -941,10 +944,12 @@ impl<'a> TsMemberEnvironments<'a> {
     }
 }
 
+type TsImportAliasSpaces = IndexSlice<SymbolId, [Option<TsResolvedAliasSpaces>]>;
+
 #[derive(Debug)]
 struct TsImportAliasIndex<'a> {
-    spaces: ArenaVec<'a, Option<TsResolvedAliasSpaces>>,
-    targets: ArenaVec<'a, Option<SymbolId>>,
+    spaces: ArenaIndexVec<'a, SymbolId, Option<TsResolvedAliasSpaces>>,
+    targets: ArenaIndexVec<'a, SymbolId, Option<SymbolId>>,
 }
 
 #[derive(Debug)]
@@ -967,16 +972,16 @@ impl TsMemberIndex<'_> {
         self.import_aliases
             .as_ref()?
             .targets
-            .get(alias.index())
+            .get(alias)
             .copied()
             .flatten()
     }
 
     pub(crate) fn value_target(
         &self,
-        symbols: &[Symbol],
-        declarations: &[Declaration],
-        scope_maps: &[ScopeMap<'_>],
+        symbols: &Symbols,
+        declarations: &Declarations,
+        scope_maps: &ScopeMaps<'_>,
         resolution: NameResolution,
         name: &[u8],
         space: ReferenceSpace,
@@ -1050,9 +1055,9 @@ impl TsMemberIndex<'_> {
 
     pub(crate) fn namespace_value_targets<'s>(
         &'s self,
-        symbols: &'s [Symbol],
-        declarations: &'s [Declaration],
-        scope_maps: &'s [ScopeMap<'_>],
+        symbols: &'s Symbols,
+        declarations: &'s Declarations,
+        scope_maps: &'s ScopeMaps<'_>,
         owner: SymbolId,
         name: &'s [u8],
     ) -> impl Iterator<Item = NameResolution> + 's {
@@ -1538,6 +1543,8 @@ pub(crate) struct Range {
     pub(crate) len: u32,
 }
 
+type UseRanges = IndexSlice<SymbolId, [Range]>;
+
 /// Additional targets of uncertain references. The nearest candidate stays
 /// on Reference, so ordinary references need no entry or per-reference slice.
 #[derive(Debug)]
@@ -1569,11 +1576,11 @@ impl<'a> ReferenceCandidates<'a> {
         reference: &mut Reference,
         resolution: NameResolution,
         candidates: &mut Vec<SymbolId>,
-        use_ranges: &mut [Range],
+        use_ranges: &mut UseRanges,
     ) {
         reference.symbol = resolution.candidate();
         if let Some(symbol) = reference.symbol {
-            use_ranges[symbol.index()].len += 1;
+            use_ranges[symbol].len += 1;
         }
         if let NameResolution::Uncertain { candidate } = resolution {
             reference.flags = reference.flags.with_uncertain();
@@ -1587,7 +1594,7 @@ impl<'a> ReferenceCandidates<'a> {
         id: ReferenceId,
         candidate: SymbolId,
         candidates: &mut Vec<SymbolId>,
-        use_ranges: &mut [Range],
+        use_ranges: &mut UseRanges,
     ) {
         candidates.retain(|&symbol| symbol != candidate);
         // A merged symbol can be encountered through both lexical and
@@ -1606,7 +1613,7 @@ impl<'a> ReferenceCandidates<'a> {
         );
         self.symbols.extend(candidates.iter().copied());
         for &symbol in candidates.iter() {
-            use_ranges[symbol.index()].len += 1;
+            use_ranges[symbol].len += 1;
         }
     }
 }
@@ -1647,8 +1654,8 @@ impl<'a> TsReferenceValues<'a> {
 
 #[derive(Debug)]
 struct TsScopeViewIndex<'a> {
-    ranges: ArenaVec<'a, Range>,
-    lookup: ArenaVec<'a, TsScopeLookup>,
+    ranges: ArenaIndexVec<'a, ScopeId, Range>,
+    lookup: ArenaIndexVec<'a, ScopeId, TsScopeLookup>,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -1707,24 +1714,24 @@ impl TsExportLocal {
 
 fn ts_exported_value(
     locals: &TsLocalExportMap<'_>,
-    symbols: &[Symbol],
-    declarations: &[Declaration],
-    scope_maps: &[ScopeMap<'_>],
+    symbols: &Symbols,
+    declarations: &Declarations,
+    scope_maps: &ScopeMaps<'_>,
     lexical: SymbolId,
     name: &[u8],
 ) -> Option<SymbolId> {
-    let first = symbols[lexical.index()].declaration;
-    let scope = declarations[first.index()].scope;
+    let first = symbols[lexical].declaration;
+    let scope = declarations[first].scope;
     let target = locals.get(&(scope, name))?.exported_value()?;
-    (scope_maps[scope.index()].get(name).copied() == Some(lexical)).then_some(target)
+    (scope_maps[scope].get(name).copied() == Some(lexical)).then_some(target)
 }
 
 struct TsValueTargetLookup<'lookup, 'arena> {
     locals: &'lookup TsLocalExportMap<'arena>,
-    symbols: &'lookup [Symbol],
-    declarations: &'lookup [Declaration],
-    scope_maps: &'lookup [ScopeMap<'arena>],
-    import_alias_spaces: &'lookup [Option<TsResolvedAliasSpaces>],
+    symbols: &'lookup Symbols,
+    declarations: &'lookup Declarations,
+    scope_maps: &'lookup ScopeMaps<'arena>,
+    import_alias_spaces: &'lookup TsImportAliasSpaces,
 }
 
 impl TsValueTargetLookup<'_, '_> {
@@ -1765,21 +1772,20 @@ impl TsSourceExports<'_> {
         &self,
         name: &[u8],
         space: ReferenceSpace,
-        symbols: &[Symbol],
+        symbols: &Symbols,
         locals: &TsLocalExportMap<'_>,
     ) -> Option<SymbolId> {
         if matches!(space, ReferenceSpace::Value | ReferenceSpace::Typeof)
             && let Some(symbol) = locals
                 .get(&(ScopeId::MODULE, name))
                 .and_then(|local| local.exported_value())
-            && symbols[symbol.index()].flags.visible_in(space)
+            && symbols[symbol].flags.visible_in(space)
         {
             return Some(symbol);
         }
         let default = self.default.as_ref()?;
-        (default.first_local == Some(name)
-            && symbols[default.symbol.index()].flags.visible_in(space))
-        .then_some(default.symbol)
+        (default.first_local == Some(name) && symbols[default.symbol].flags.visible_in(space))
+            .then_some(default.symbol)
     }
 }
 
@@ -1788,14 +1794,14 @@ impl TsSourceExports<'_> {
 pub(crate) struct SymbolTracker<'a> {
     allocator: &'a Allocator,
     internal_names: crate::InternalNames<'a>,
-    symbols: ArenaVec<'a, Symbol>,
-    references: ArenaVec<'a, Reference>,
+    symbols: ArenaIndexVec<'a, SymbolId, Symbol>,
+    references: ArenaIndexVec<'a, ReferenceId, Reference>,
     jsx_usages: ArenaVec<'a, crate::JsxUsage>,
-    declarations: ArenaVec<'a, Declaration>,
+    declarations: ArenaIndexVec<'a, DeclarationId, Declaration>,
     redeclarations: Redeclarations<'a>,
-    node_semantic: ArenaVec<'a, NodeSemanticId>,
-    scope_maps: ArenaVec<'a, ScopeMap<'a>>,
-    hoisting_variables: ArenaVec<'a, HoistingMap<'a>>,
+    node_semantic: ArenaIndexVec<'a, NodeId, NodeSemanticId>,
+    scope_maps: ArenaIndexVec<'a, ScopeId, ScopeMap<'a>>,
+    hoisting_variables: ArenaIndexVec<'a, ScopeId, HoistingMap<'a>>,
     annex_b_functions: ArenaVec<'a, AnnexBFunction>,
     ts_type_parameter_owners: ArenaHashMap<'a, ScopeId, SymbolId>,
     ts_type_parameters: ArenaHashMap<'a, SymbolId, ScopeMap<'a>>,
@@ -1986,19 +1992,19 @@ impl<'a> SymbolTracker<'a> {
     pub fn init(tree: &Ast<'a>) -> Self {
         let allocator = tree.allocator();
         let nodes = tree.node_count();
-        let mut node_semantic = ArenaVec::with_capacity_in(nodes, allocator);
+        let mut node_semantic = ArenaIndexVec::with_capacity_in(nodes, allocator);
         node_semantic.resize(nodes, NodeSemanticId::None);
         let mut tracker = Self {
             allocator,
             internal_names: crate::InternalNames::new_in(allocator),
-            symbols: ArenaVec::with_capacity_in(16usize.max(nodes / 12), allocator),
-            references: ArenaVec::with_capacity_in(16usize.max(nodes / 4), allocator),
+            symbols: ArenaIndexVec::with_capacity_in(16usize.max(nodes / 12), allocator),
+            references: ArenaIndexVec::with_capacity_in(16usize.max(nodes / 4), allocator),
             jsx_usages: ArenaVec::new_in(allocator),
-            declarations: ArenaVec::with_capacity_in(16usize.max(nodes / 12), allocator),
+            declarations: ArenaIndexVec::with_capacity_in(16usize.max(nodes / 12), allocator),
             redeclarations: Redeclarations::new_in(allocator),
             node_semantic,
-            scope_maps: ArenaVec::with_capacity_in(8usize.max(nodes / 16), allocator),
-            hoisting_variables: ArenaVec::with_capacity_in(8usize.max(nodes / 16), allocator),
+            scope_maps: ArenaIndexVec::with_capacity_in(8usize.max(nodes / 16), allocator),
+            hoisting_variables: ArenaIndexVec::with_capacity_in(8usize.max(nodes / 16), allocator),
             annex_b_functions: ArenaVec::new_in(allocator),
             ts_type_parameter_owners: ArenaHashMap::new_in(allocator),
             ts_type_parameters: ArenaHashMap::new_in(allocator),
@@ -2724,7 +2730,7 @@ impl<'a> SymbolTracker<'a> {
         let local = self
             .own_binding(self.pending.scope, name_text)
             .filter(|&symbol| {
-                !self.symbols[symbol.index()]
+                !self.symbols[symbol]
                     .flags
                     .intersects(SymbolFlags::INTERNAL_NAME)
             });
@@ -2926,8 +2932,8 @@ impl<'a> SymbolTracker<'a> {
             let mut declaration_flags = self.pending.flags;
             declaration_flags.set(SymbolFlags::EXPORTED, self.export_state.is_exported());
             declaration_flags.set(SymbolFlags::IS_DEFAULT, self.export_state.is_default());
-            let declaration_id = DeclarationId::from_usize(self.declarations.len());
-            let bindings = &mut self.scope_maps[target.index()];
+            let declaration_id = self.declarations.next_idx();
+            let bindings = &mut self.scope_maps[target];
             let hash = bindings.hasher().hash_one(name_text);
             let entry = bindings
                 .raw_entry_mut()
@@ -2937,11 +2943,11 @@ impl<'a> SymbolTracker<'a> {
             // Keep its symbol and AST identity while replacing the name map.
             let (entry, symbol_name) = match entry {
                 hashbrown::hash_map::RawEntryMut::Occupied(entry)
-                    if self.symbols[entry.get().index()]
+                    if self.symbols[*entry.get()]
                         .flags
                         .intersects(SymbolFlags::INTERNAL_NAME) =>
                 {
-                    let symbol_name = self.symbols[entry.get().index()].name;
+                    let symbol_name = self.symbols[*entry.get()].name;
                     entry.remove_entry();
                     (
                         bindings
@@ -2955,7 +2961,7 @@ impl<'a> SymbolTracker<'a> {
             let id = match entry {
                 hashbrown::hash_map::RawEntryMut::Occupied(entry) => {
                     let existing = *entry.get();
-                    let symbol = &mut self.symbols[existing.index()];
+                    let symbol = &mut self.symbols[existing];
                     let merges = !symbol.flags.intersects(self.pending.excludes);
                     if merges {
                         symbol.flags = merge_symbol_flags(symbol.flags, declaration_flags);
@@ -2967,7 +2973,7 @@ impl<'a> SymbolTracker<'a> {
                     existing
                 }
                 hashbrown::hash_map::RawEntryMut::Vacant(vacant) => {
-                    let new_id = SymbolId::from_usize(self.symbols.len());
+                    let new_id = self.symbols.next_idx();
                     self.symbols.push(Symbol {
                         name: symbol_name,
                         flags: declaration_flags,
@@ -2984,7 +2990,7 @@ impl<'a> SymbolTracker<'a> {
                 flags: declaration_flags,
             });
             self.record_internal_name(id);
-            self.node_semantic[node.index()] = NodeSemanticId::Symbol(id);
+            self.node_semantic[node] = NodeSemanticId::Symbol(id);
             return declaration_id;
         }
 
@@ -3098,7 +3104,7 @@ impl<'a> SymbolTracker<'a> {
         };
         match tree.ts_module_name_data(name) {
             TsModuleNameData::BindingIdentifier(identifier) => {
-                let owner = self.node_semantic[identifier.node_id().index()].symbol();
+                let owner = self.node_semantic[identifier.node_id()].symbol();
                 let views = owner.map_or_else(Range::default, |owner| {
                     self.append_ts_namespace_views([owner], kind)
                 });
@@ -3110,7 +3116,7 @@ impl<'a> SymbolTracker<'a> {
                 let Some(root) = collect_ts_module_path(tree, qualified, &mut members) else {
                     return (Vec::new(), Range::default());
                 };
-                let Some(mut owner) = self.node_semantic[root.index()].symbol() else {
+                let Some(mut owner) = self.node_semantic[root].symbol() else {
                     return (Vec::new(), Range::default());
                 };
                 let mut owners = Vec::with_capacity(members.len() + 1);
@@ -3334,14 +3340,14 @@ impl<'a> SymbolTracker<'a> {
     ) {
         // Register a hoisting var in every block it passes through so
         // block-scoped redeclarations see it.
-        let declaration = self.declarations[declaration_id.index()];
+        let declaration = self.declarations[declaration_id];
         if declaration.flags.is_hoisting_var() && current_scope != declaration.scope {
             let name = tree.get_utf8(name).as_bytes();
             for scope_id in scope.ancestors(Some(current_scope)) {
                 if scope_id == declaration.scope {
                     break;
                 }
-                self.hoisting_variables[scope_id.index()]
+                self.hoisting_variables[scope_id]
                     .get_or_insert_with(|| {
                         self.allocator.boxed(ArenaHashMap::new_in(self.allocator))
                     })
@@ -3448,7 +3454,7 @@ impl<'a> SymbolTracker<'a> {
             default_local: None,
         };
         let declaration_id = self.declare_prepared(tree, prepared);
-        let symbol = self.declarations[declaration_id.index()].symbol;
+        let symbol = self.declarations[declaration_id].symbol;
         (symbol, prepared)
     }
 
@@ -3553,10 +3559,10 @@ impl<'a> SymbolTracker<'a> {
         } = declaration;
         let declaration_flags = binding.flags;
         debug_assert!(node.index() < tree.node_count());
-        let declaration_id = DeclarationId::from_usize(self.declarations.len());
+        let declaration_id = self.declarations.next_idx();
         let id = if let Some(existing) = existing {
             let merges = self.declaration_merges(existing, binding);
-            let symbol = &mut self.symbols[existing.index()];
+            let symbol = &mut self.symbols[existing];
             if merges {
                 symbol.flags = merge_symbol_flags(symbol.flags, declaration_flags);
             }
@@ -3566,13 +3572,13 @@ impl<'a> SymbolTracker<'a> {
                 .push(declaration_id);
             existing
         } else {
-            let new_id = SymbolId::from_usize(self.symbols.len());
+            let new_id = self.symbols.next_idx();
             self.symbols.push(Symbol {
                 name: self
                     .scope_maps
-                    .get(binding.scope.index())
+                    .get(binding.scope)
                     .and_then(|bindings| bindings.get(tree.get_wtf8(name).as_bytes()))
-                    .map(|&symbol| self.symbols[symbol.index()])
+                    .map(|&symbol| self.symbols[symbol])
                     .filter(|symbol| symbol.flags.intersects(SymbolFlags::INTERNAL_NAME))
                     .map_or(name, |symbol| symbol.name),
                 flags: declaration_flags,
@@ -3590,18 +3596,18 @@ impl<'a> SymbolTracker<'a> {
         self.record_internal_name(id);
         if record_node {
             debug_assert!(matches!(
-                self.node_semantic[node.index()],
+                self.node_semantic[node],
                 NodeSemanticId::None | NodeSemanticId::Symbol(_)
             ));
-            self.node_semantic[node.index()] = NodeSemanticId::Symbol(id);
+            self.node_semantic[node] = NodeSemanticId::Symbol(id);
         }
         (id, declaration_id)
     }
 
     fn record_internal_name(&mut self, id: SymbolId) {
-        let symbol = self.symbols[id.index()];
+        let symbol = self.symbols[id];
         if symbol.flags.intersects(SymbolFlags::INTERNAL_NAME) {
-            let scope = self.declarations[symbol.declaration.index()].scope;
+            let scope = self.declarations[symbol.declaration].scope;
             self.internal_names
                 .entry((scope, symbol.name))
                 .or_insert(id);
@@ -3617,7 +3623,7 @@ impl<'a> SymbolTracker<'a> {
         id: SymbolId,
     ) {
         let name = tree.get_wtf8(name).as_bytes();
-        self.scope_maps[scope.index()].insert(name, id);
+        self.scope_maps[scope].insert(name, id);
     }
 
     fn sync_scope_maps_from(&mut self, scope: &ScopeTree<'a>) {
@@ -3652,9 +3658,9 @@ impl<'a> SymbolTracker<'a> {
         // the last reference. Match the node instead of relying on that order.
         let root_reference = self
             .references
-            .iter()
-            .rposition(|reference| reference.node == root)
-            .map(ReferenceId::from_usize);
+            .iter_enumerated()
+            .rfind(|(_, reference)| reference.node == root)
+            .map(|(id, _)| id);
         debug_assert!(
             root_reference.is_some(),
             "an internal import target has a root reference"
@@ -3880,7 +3886,7 @@ impl<'a> SymbolTracker<'a> {
         } else {
             flags
         };
-        let id = ReferenceId::from_usize(self.references.len());
+        let id = self.references.next_idx();
         self.references.push(Reference {
             name,
             scope,
@@ -3905,13 +3911,13 @@ impl<'a> SymbolTracker<'a> {
 
     #[inline(always)]
     fn declaration_merges(&self, existing: SymbolId, binding: PendingBinding) -> bool {
-        let existing = self.symbols[existing.index()].flags;
+        let existing = self.symbols[existing].flags;
         !existing.intersects(binding.excludes)
     }
 
     /// The symbol with the given id.
     pub fn symbol(&self, id: SymbolId) -> Symbol {
-        self.symbols[id.index()]
+        self.symbols[id]
     }
 
     #[inline]
@@ -3922,8 +3928,8 @@ impl<'a> SymbolTracker<'a> {
         match candidate.kind {
             DeclarationConflictKind::DefaultLocal(local) => return (local.flags, local.node),
             DeclarationConflictKind::Symbol => {
-                let symbol = self.symbols[candidate.symbol.index()];
-                let declaration = self.declarations[symbol.declaration.index()];
+                let symbol = self.symbols[candidate.symbol];
+                let declaration = self.declarations[symbol.declaration];
                 return (symbol.flags, declaration.node);
             }
             DeclarationConflictKind::Scope(_) => {}
@@ -3955,7 +3961,7 @@ impl<'a> SymbolTracker<'a> {
         &self,
         candidate: DeclarationConflictCandidate,
     ) -> impl Iterator<Item = Declaration> + '_ {
-        let symbol = self.symbols[candidate.symbol.index()];
+        let symbol = self.symbols[candidate.symbol];
         let first = std::iter::once(symbol.declaration);
         let rest = self
             .redeclarations
@@ -3965,7 +3971,7 @@ impl<'a> SymbolTracker<'a> {
             .copied();
         first
             .chain(rest)
-            .map(|declaration| self.declarations[declaration.index()])
+            .map(|declaration| self.declarations[declaration])
             .filter(move |declaration| match candidate.kind {
                 DeclarationConflictKind::Scope(scope) => declaration.scope == scope,
                 _ => true,
@@ -3973,7 +3979,7 @@ impl<'a> SymbolTracker<'a> {
     }
 
     pub fn symbol_of_node(&self, node: NodeId) -> Option<SymbolId> {
-        self.node_semantic[node.index()].symbol()
+        self.node_semantic[node].symbol()
     }
 
     fn default_export_symbol(&self) -> Option<SymbolId> {
@@ -3987,21 +3993,21 @@ impl<'a> SymbolTracker<'a> {
     /// The `binding_identifier` node of the earliest declaration of `id`.
     /// Later declarations merged into the symbol do not change it.
     pub fn first_decl_of(&self, id: SymbolId) -> NodeId {
-        let declaration_id = self.symbols[id.index()].declaration;
-        self.declarations[declaration_id.index()].node
+        let declaration_id = self.symbols[id].declaration;
+        self.declarations[declaration_id].node
     }
 
     /// The binding of `name` declared directly in `scope`, excluding
     /// hoisting `var`s passing through.
     pub fn own_binding(&self, scope: ScopeId, name: &[u8]) -> Option<SymbolId> {
         self.scope_maps
-            .get(scope.index())
+            .get(scope)
             .and_then(|map| map.get(name).copied())
     }
 
     fn symbol_declared_in_scope(&self, symbol: SymbolId, scope: ScopeId) -> bool {
-        let first = self.symbols[symbol.index()].declaration;
-        if self.declarations[first.index()].scope == scope {
+        let first = self.symbols[symbol].declaration;
+        if self.declarations[first].scope == scope {
             return true;
         }
         self.redeclarations
@@ -4009,7 +4015,7 @@ impl<'a> SymbolTracker<'a> {
             .is_some_and(|declarations| {
                 declarations
                     .iter()
-                    .any(|declaration| self.declarations[declaration.index()].scope == scope)
+                    .any(|declaration| self.declarations[*declaration].scope == scope)
             })
     }
 
@@ -4037,7 +4043,7 @@ impl<'a> SymbolTracker<'a> {
         if incoming_spaces.is_empty() {
             return false;
         }
-        let first = self.symbols[symbol.index()].declaration;
+        let first = self.symbols[symbol].declaration;
         if self.declaration_has_export_visibility_conflict(
             first,
             target,
@@ -4067,7 +4073,7 @@ impl<'a> SymbolTracker<'a> {
         incoming_exported: bool,
         incoming_spaces: TsDeclarationSpaces,
     ) -> bool {
-        let declaration = self.declarations[declaration.index()];
+        let declaration = self.declarations[declaration];
         declaration.scope == scope
             && !declaration.flags.contains(SymbolFlags::IS_DEFAULT)
             && declaration.flags.contains(SymbolFlags::EXPORTED) != incoming_exported
@@ -4079,13 +4085,13 @@ impl<'a> SymbolTracker<'a> {
     pub fn binding(&self, scope: ScopeId, name: &[u8]) -> Option<SymbolId> {
         self.own_binding(scope, name).or_else(|| {
             self.hoisting_declaration(scope, name)
-                .map(|declaration| self.declarations[declaration.index()].symbol)
+                .map(|declaration| self.declarations[declaration].symbol)
         })
     }
 
     fn hoisting_declaration(&self, scope: ScopeId, name: &[u8]) -> Option<DeclarationId> {
         self.hoisting_variables
-            .get(scope.index())
+            .get(scope)
             .and_then(Option::as_deref)
             .and_then(|map| map.get(name).copied())
     }
@@ -4108,7 +4114,7 @@ impl<'a> SymbolTracker<'a> {
             _ => prepared.target(),
         };
         let declaration = self.hoisting_declaration(scope, name)?;
-        Some(self.declarations[declaration.index()])
+        Some(self.declarations[declaration])
     }
 
     /// Follow a recorded local ExportValue link without changing the local
@@ -4130,7 +4136,7 @@ impl<'a> SymbolTracker<'a> {
         name: &[u8],
         scope_views: &TsScopeViewIndex<'_>,
     ) -> Option<SymbolId> {
-        let range = scope_views.ranges[scope.index()];
+        let range = scope_views.ranges[scope];
         if range.len == 0 {
             return None;
         }
@@ -4176,7 +4182,7 @@ impl<'a> SymbolTracker<'a> {
             .or_else(|| self.finalize_ts_scope_views(&scopes.list));
         let symbol_count = self.symbols.len();
 
-        let mut use_ranges = ArenaVec::with_capacity_in(symbol_count, self.allocator);
+        let mut use_ranges = ArenaIndexVec::with_capacity_in(symbol_count, self.allocator);
         use_ranges.resize(symbol_count, Range::default());
 
         let mut reference_candidates = ReferenceCandidates::new_in(self.allocator);
@@ -4249,43 +4255,42 @@ impl<'a> SymbolTracker<'a> {
         let mut use_ids = ArenaVec::with_capacity_in(use_offset as usize, self.allocator);
         use_ids.resize(use_offset as usize, ReferenceId::from_usize(0));
         if reference_candidates.ranges.is_empty() {
-            for (index, reference) in self.references.iter().enumerate() {
+            for (id, reference) in self.references.iter_enumerated() {
                 if let Some(symbol) = reference.symbol {
-                    let range = &mut use_ranges[symbol.index()];
-                    use_ids[(range.start + range.len) as usize] = ReferenceId::from_usize(index);
+                    let range = &mut use_ranges[symbol];
+                    use_ids[(range.start + range.len) as usize] = id;
                     range.len += 1;
                 }
             }
         } else {
-            for (index, reference) in self.references.iter().enumerate() {
-                let id = ReferenceId::from_usize(index);
+            for (id, reference) in self.references.iter_enumerated() {
                 let targets = reference
                     .symbol
                     .into_iter()
                     .chain(reference_candidates.additional(id).iter().copied());
                 for symbol in targets {
-                    let range = &mut use_ranges[symbol.index()];
+                    let range = &mut use_ranges[symbol];
                     use_ids[(range.start + range.len) as usize] = id;
                     range.len += 1;
                 }
             }
         }
 
-        for (index, reference) in self.references.iter().enumerate() {
-            let slot = &mut self.node_semantic[reference.node.index()];
+        for (id, reference) in self.references.iter_enumerated() {
+            let slot = &mut self.node_semantic[reference.node];
             debug_assert!(matches!(
                 *slot,
                 NodeSemanticId::None | NodeSemanticId::Reference(_)
             ));
-            *slot = NodeSemanticId::Reference(ReferenceId::from_usize(index));
+            *slot = NodeSemanticId::Reference(id);
         }
-        for (index, scope) in scopes.list.iter().enumerate() {
-            let slot = &mut self.node_semantic[scope.node.index()];
+        for (id, scope) in scopes.list.iter_enumerated() {
+            let slot = &mut self.node_semantic[scope.node];
             debug_assert!(matches!(
                 *slot,
                 NodeSemanticId::None | NodeSemanticId::Scope(_)
             ));
-            *slot = NodeSemanticId::Scope(ScopeId::from_usize(index));
+            *slot = NodeSemanticId::Scope(id);
         }
         let declarations = self.declarations;
         let redeclarations = self.redeclarations;
@@ -4325,27 +4330,27 @@ impl<'a> SymbolTracker<'a> {
 
     #[cold]
     #[inline(never)]
-    fn finalize_ts_scope_views(&self, scopes: &[Scope]) -> Option<TsScopeViewIndex<'a>> {
+    fn finalize_ts_scope_views(&self, scopes: &Scopes) -> Option<TsScopeViewIndex<'a>> {
         if self.ts_scope_view_records.is_empty() {
             return None;
         }
         let scope_count = scopes.len();
-        let mut ranges = ArenaVec::with_capacity_in(scope_count, self.allocator);
+        let mut ranges = ArenaIndexVec::with_capacity_in(scope_count, self.allocator);
         ranges.resize(scope_count, Range::default());
         for &(scope, range) in &self.ts_scope_view_records {
-            debug_assert_eq!(ranges[scope.index()].len, 0);
-            ranges[scope.index()] = range;
+            debug_assert_eq!(ranges[scope].len, 0);
+            ranges[scope] = range;
         }
-        let mut lookup: ArenaVec<TsScopeLookup> =
-            ArenaVec::with_capacity_in(scope_count, self.allocator);
-        for (index, scope) in scopes.iter().enumerate() {
+        let mut lookup: ArenaIndexVec<ScopeId, TsScopeLookup> =
+            ArenaIndexVec::with_capacity_in(scope_count, self.allocator);
+        for (id, scope) in scopes.iter_enumerated() {
             let parent = scope
                 .parent
-                .map(|parent| lookup[parent.index()])
+                .map(|parent| lookup[parent])
                 .unwrap_or_default();
             lookup.push(TsScopeLookup {
-                members: if ranges[index].len != 0 {
-                    Some(ScopeId::from_usize(index))
+                members: if ranges[id].len != 0 {
+                    Some(id)
                 } else {
                     parent.members
                 },
@@ -4360,7 +4365,7 @@ impl<'a> SymbolTracker<'a> {
         tree: &Ast<'a>,
         scopes: &ScopeTree<'_>,
         scope_views: &TsScopeViewIndex<'_>,
-        use_ranges: &mut [Range],
+        use_ranges: &mut UseRanges,
         additional_targets: &mut ReferenceCandidates<'a>,
     ) -> TsReferenceValues<'a> {
         if self.ts_member_environments.needs_value_projections() {
@@ -4392,7 +4397,7 @@ impl<'a> SymbolTracker<'a> {
         tree: &Ast<'a>,
         scopes: &ScopeTree<'_>,
         scope_views: &TsScopeViewIndex<'_>,
-        use_ranges: &mut [Range],
+        use_ranges: &mut UseRanges,
         additional_targets: &mut ReferenceCandidates<'a>,
     ) -> TsReferenceValues<'a> {
         let mut reference_values = TsReferenceValues::new_in(self.allocator);
@@ -4404,11 +4409,10 @@ impl<'a> SymbolTracker<'a> {
         let mut candidates = Vec::new();
         let mut bindings = Vec::new();
         let mut values = Vec::new();
-        for reference_index in 0..self.references.len() {
+        for id in self.references.indices() {
             candidates.clear();
             bindings.clear();
-            let reference = self.references[reference_index];
-            let id = ReferenceId::from_usize(reference_index);
+            let reference = self.references[id];
             let name = tree.get_utf8(reference.name).as_bytes();
             let query = NameLookupQuery {
                 scope: reference.scope,
@@ -4456,11 +4460,11 @@ impl<'a> SymbolTracker<'a> {
                     &mut values,
                 );
                 if reference.flags.space == ReferenceSpace::Any && values.is_empty() {
-                    self.references[reference_index].flags = reference.flags.no_access();
+                    self.references[id].flags = reference.flags.no_access();
                 }
                 reference_values.record(id, &values);
             } else if reference.flags.space == ReferenceSpace::Any {
-                self.references[reference_index].flags = self
+                self.references[id].flags = self
                     .resolved_reference_flags::<PRECISE_IMPORT_ALIASES>(tree, reference, resolved);
             }
             if MEMBER_VALUES {
@@ -4468,7 +4472,7 @@ impl<'a> SymbolTracker<'a> {
             }
             additional_targets.record(
                 id,
-                &mut self.references[reference_index],
+                &mut self.references[id],
                 resolved,
                 &mut candidates,
                 use_ranges,
@@ -4485,7 +4489,7 @@ impl<'a> SymbolTracker<'a> {
         &mut self,
         tree: &Ast<'a>,
         scopes: &ScopeTree<'_>,
-        use_ranges: &mut [Range],
+        use_ranges: &mut UseRanges,
         additional_targets: &mut ReferenceCandidates<'a>,
     ) {
         let import_alias_spaces = self
@@ -4494,10 +4498,9 @@ impl<'a> SymbolTracker<'a> {
             .map(|aliases| aliases.spaces.as_slice())
             .unwrap_or_default();
         let mut candidates = Vec::new();
-        for reference_index in 0..self.references.len() {
+        for id in self.references.indices() {
             candidates.clear();
-            let reference = self.references[reference_index];
-            let id = ReferenceId::from_usize(reference_index);
+            let reference = self.references[id];
             // JavaScript and JSX only produce runtime-value references here;
             // `Any` is the name-only form used by local export specifiers.
             debug_assert!(
@@ -4529,12 +4532,12 @@ impl<'a> SymbolTracker<'a> {
                 lookup_lexical_name::<true, TS_LOOKUP, FILTER_BY_SPACE>(lexical, query)
             };
             if reference.flags.space == ReferenceSpace::Any {
-                self.references[reference_index].flags = self
+                self.references[id].flags = self
                     .resolved_reference_flags::<PRECISE_IMPORT_ALIASES>(tree, reference, resolved);
             }
             additional_targets.record(
                 id,
-                &mut self.references[reference_index],
+                &mut self.references[id],
                 resolved,
                 &mut candidates,
                 use_ranges,
@@ -4555,9 +4558,7 @@ impl<'a> SymbolTracker<'a> {
             .as_ref()
             .map(|aliases| aliases.spaces.as_slice())
             .unwrap_or_default();
-        let hash = self.scope_maps[ScopeId::ROOT.index()]
-            .hasher()
-            .hash_one(name);
+        let hash = self.scope_maps[ScopeId::ROOT].hasher().hash_one(name);
         let value_targets = TsValueTargetLookup {
             locals: &self.ts_local_exports,
             symbols: &self.symbols,

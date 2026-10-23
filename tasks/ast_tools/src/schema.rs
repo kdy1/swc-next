@@ -1,10 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
-use oxc_index::IndexVec;
 use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote};
+use swc_next_allocator::IndexVec;
 
-oxc_index::define_index_type! {
+swc_next_allocator::define_index_type! {
     pub struct TypeId = u32;
     MAX_INDEX = u32::MAX as usize;
 }

@@ -1,5 +1,7 @@
 //! Annex B companion var bindings, finalized after every lexical declaration.
 
+use swc_next_allocator::Idx;
+
 use super::*;
 
 #[derive(Clone, Copy)]
@@ -36,7 +38,7 @@ impl<'a> SymbolTracker<'a> {
         for declaration in &self.declarations {
             let scope = scopes.get(declaration.scope);
             if annex_b_var_blocker(tree, scope, declaration.flags) {
-                let name = self.symbols[declaration.symbol.index()].name;
+                let name = self.symbols[declaration.symbol].name;
                 let name = tree.get_wtf8(name).as_bytes();
                 let local = facts.entry(declaration.scope).or_default();
                 local.blockers.push(name);
@@ -56,10 +58,10 @@ impl<'a> SymbolTracker<'a> {
         // a companion binding in a nested function.
         let mut children = vec![None; scopes.list.len()];
         let mut siblings = vec![None; scopes.list.len()];
-        for (index, scope) in scopes.list.iter().enumerate().rev() {
+        for (index, scope) in scopes.list.iter_enumerated().rev() {
             if let Some(parent) = scope.parent {
-                siblings[index] = children[parent.index()];
-                children[parent.index()] = Some(ScopeId::from_usize(index));
+                siblings[index.index()] = children[parent.index()];
+                children[parent.index()] = Some(index);
             }
         }
         let mut blocked = HashMap::<_, usize, FxBuildHasher>::default();
@@ -87,7 +89,7 @@ impl<'a> SymbolTracker<'a> {
                     let name = self.annex_b_functions[index].name;
                     let text = tree.get_utf8(name.name(tree)).as_bytes();
                     let branch_local = self.symbol_of_node(name.node_id()).is_some_and(|symbol| {
-                        self.symbols[symbol.index()]
+                        self.symbols[symbol]
                             .flags
                             .contains(SymbolFlags::ANNEX_B_IF_FUNCTION)
                     });
@@ -113,7 +115,7 @@ impl<'a> SymbolTracker<'a> {
                 child = siblings[id.index()];
             }
         }
-        let explicit = self.declarations.len();
+        let explicit = self.declarations.next_idx();
         for (index, eligible) in eligible.into_iter().enumerate() {
             if eligible {
                 let function = self.annex_b_functions[index];
@@ -140,7 +142,7 @@ impl<'a> SymbolTracker<'a> {
             && let Some(parameter) = scope
                 .parent
                 .and_then(|parent| self.own_binding(parent, text))
-            && self.symbols[parameter.index()]
+            && self.symbols[parameter]
                 .flags
                 .contains(SymbolFlags::PARAMETER)
         {
@@ -154,7 +156,7 @@ impl<'a> SymbolTracker<'a> {
             .and_then(|local| local.exported_value())
             .or_else(|| self.own_binding(target, text))
             .filter(|&symbol| {
-                !self.symbols[symbol.index()]
+                !self.symbols[symbol]
                     .flags
                     .intersects(SymbolFlags::INTERNAL_NAME)
             });
@@ -181,8 +183,8 @@ impl<'a> SymbolTracker<'a> {
         }
     }
 
-    fn order_annex_b_declarations(&mut self, explicit: usize) {
-        if explicit == self.declarations.len() {
+    fn order_annex_b_declarations(&mut self, explicit: DeclarationId) {
+        if explicit.index() == self.declarations.len() {
             return;
         }
         // Each companion follows its lexical declaration in the public
@@ -195,25 +197,27 @@ impl<'a> SymbolTracker<'a> {
             .collect::<HashMap<_, _, FxBuildHasher>>();
         let mut ordered = Vec::with_capacity(self.declarations.len());
         let mut remap = vec![DeclarationId::from_usize(0); self.declarations.len()];
-        for (index, &declaration) in self.declarations[..explicit].iter().enumerate() {
-            remap[index] = DeclarationId::from_usize(ordered.len());
+        for (index, &declaration) in self.declarations[..explicit].iter_enumerated() {
+            remap[index.index()] = DeclarationId::from_usize(ordered.len());
             ordered.push(declaration);
             if let Some(&companion) = companions.get(&declaration.node) {
-                remap[companion] = DeclarationId::from_usize(ordered.len());
+                remap[companion.index()] = DeclarationId::from_usize(ordered.len());
                 ordered.push(self.declarations[companion]);
             }
         }
         debug_assert_eq!(ordered.len(), self.declarations.len());
-        self.declarations.copy_from_slice(&ordered);
+        self.declarations
+            .as_raw_slice_mut()
+            .copy_from_slice(&ordered);
         for declarations in self.redeclarations.values_mut() {
             declarations.clear();
         }
-        for (index, declaration) in self.declarations.iter().enumerate().rev() {
-            self.symbols[declaration.symbol.index()].declaration = DeclarationId::from_usize(index);
+        for (index, declaration) in self.declarations.iter_enumerated().rev() {
+            self.symbols[declaration.symbol].declaration = index;
         }
-        for (index, declaration) in self.declarations.iter().enumerate() {
-            let id = DeclarationId::from_usize(index);
-            if self.symbols[declaration.symbol.index()].declaration != id {
+        for (index, declaration) in self.declarations.iter_enumerated() {
+            let id = index;
+            if self.symbols[declaration.symbol].declaration != id {
                 self.redeclarations
                     .entry(declaration.symbol)
                     .or_insert_with(|| ArenaVec::new_in(self.allocator))

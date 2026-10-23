@@ -39,7 +39,10 @@ use std::{
 
 use swc_next_allocator::Allocator;
 #[cfg(target_endian = "little")]
-use {std::ptr::NonNull, swc_next_allocator::vec::Vec as ArenaVec};
+use {
+    std::ptr::NonNull,
+    swc_next_allocator::vec::{ArenaIndexVec, Vec as ArenaVec},
+};
 
 use crate::{
     Ast, Comment, CommentKind, CommentPosition, Diagnostic, ExtraData, Lang, NodeId, NodeKind,
@@ -213,7 +216,7 @@ pub fn serialize_into(
     // =================== Extra Data ====================
     let extra_data = unsafe {
         slice::from_raw_parts(
-            tree.extra_data.as_slice().as_ptr().cast::<u8>(),
+            tree.extra_data.as_raw_slice().as_ptr().cast::<u8>(),
             tree.extra_data_count() * EXTRA_DATA_SIZE,
         )
     };
@@ -439,11 +442,11 @@ pub unsafe fn deserialize_from<'a>(
         unsafe {
             ptr::copy_nonoverlapping(
                 buf.as_ptr().add(extra),
-                tree.extra_data.as_mut_ptr().cast::<u8>(),
+                tree.extra_data.as_raw_slice_mut().as_mut_ptr().cast::<u8>(),
                 extra_count * EXTRA_DATA_SIZE,
             );
             let bytes = slice::from_raw_parts_mut(
-                tree.extra_data.as_mut_ptr().cast::<u8>(),
+                tree.extra_data.as_raw_slice_mut().as_mut_ptr().cast::<u8>(),
                 extra_count * EXTRA_DATA_SIZE,
             );
             for word in bytes.as_chunks_mut::<4>().0 {
@@ -502,10 +505,10 @@ pub unsafe fn deserialize_from<'a>(
             ast.nodes.data = NonNull::new_unchecked(buf.as_ptr().add(payloads).cast_mut().cast());
             ast.nodes.len = node_count as u32;
             ast.nodes.cap = node_count as u32;
-            ast.extra_data = ArenaVec::from_borrowed_slice_in(
+            ast.extra_data = ArenaIndexVec::from_vec(ArenaVec::from_borrowed_slice_in(
                 slice::from_raw_parts(buf.as_ptr().add(extra).cast(), extra_count),
                 allocator,
-            );
+            ));
             ast.strings
                 .borrow_extra(&buf[source_end..source_end + pool_len]);
             ast.root = Some(NodeId::from_usize(root));

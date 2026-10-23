@@ -117,7 +117,7 @@ pub fn generate_u32_to_field(field_ty: &AstType, schema: &Schema) -> TokenStream
                 {
                     quote! {
                         (raw != 0).then(|| unsafe {
-                            <#field_inner_ident as oxc_index::Idx>::from_usize_unchecked(
+                            <#field_inner_ident as swc_next_allocator::Idx>::from_usize_unchecked(
                                 raw.wrapping_sub(1) as usize
                             )
                         })

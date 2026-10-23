@@ -2,15 +2,14 @@
 
 use std::hash::BuildHasher;
 
-use oxc_index::Idx;
 use swc_next_ecma_ast::{ScopeId, SymbolId};
 
 use super::{
-    BindingVisibility, NameResolution, ReferenceSpace, ScopeMap, Symbol, SymbolFlags,
+    BindingVisibility, NameResolution, ReferenceSpace, SymbolFlags, TsImportAliasSpaces,
     TsLocalExportMap, TsMemberEnvironments, TsMemberView, TsResolvedAliasSpaces, TsScopeViewIndex,
     TsSourceExports,
 };
-use crate::scope::{Scope, ScopeKind};
+use crate::{ScopeMaps, Scopes, Symbols, scope::ScopeKind};
 
 #[derive(Clone, Copy)]
 pub(super) struct NameLookupQuery<'a> {
@@ -28,10 +27,10 @@ impl NameLookupQuery<'_> {
 
 #[derive(Clone, Copy)]
 pub(super) struct LexicalLookup<'lookup, 'arena> {
-    pub(super) scopes: &'lookup [Scope],
-    pub(super) symbols: &'lookup [Symbol],
+    pub(super) scopes: &'lookup Scopes,
+    pub(super) symbols: &'lookup Symbols,
     pub(super) internal_names: &'lookup crate::InternalNames<'arena>,
-    pub(super) scope_maps: &'lookup [ScopeMap<'arena>],
+    pub(super) scope_maps: &'lookup ScopeMaps<'arena>,
 }
 
 pub(super) struct TsNameLookup<'lookup, 'arena> {
@@ -40,7 +39,7 @@ pub(super) struct TsNameLookup<'lookup, 'arena> {
     pub(super) environments: &'lookup TsMemberEnvironments<'arena>,
     pub(super) views: &'lookup [TsMemberView],
     // Missing entries have no refinement; declaration flags remain the fallback.
-    pub(super) import_alias_spaces: &'lookup [Option<TsResolvedAliasSpaces>],
+    pub(super) import_alias_spaces: &'lookup TsImportAliasSpaces,
 }
 
 /// A canonical declaration together with the member view that supplied it.
@@ -151,7 +150,7 @@ pub(super) fn lookup_name_with_ts_views<
     query: NameLookupQuery<'_>,
     emit: impl FnMut(NameBinding),
 ) -> NameLookupResult {
-    if scope_views.lookup[query.scope.index()].restricted_lexical {
+    if scope_views.lookup[query.scope].restricted_lexical {
         lookup_name_with_ts_views_policy::<
             INCLUDE_GLOBAL,
             PRECISE_IMPORT_ALIASES,
@@ -194,7 +193,7 @@ fn lookup_name_with_ts_views_policy<
         None
     };
     let NameLookupQuery { scope, name, space } = query;
-    let Some(member_scope) = scope_views.lookup[scope.index()].members else {
+    let Some(member_scope) = scope_views.lookup[scope].members else {
         return NameLookupResult::lexical(if PRECISE_IMPORT_ALIASES {
             lookup_lexical_name_with_import_aliases::<INCLUDE_GLOBAL>(
                 lexical,
@@ -206,7 +205,7 @@ fn lookup_name_with_ts_views_policy<
             lookup_lexical_name::<INCLUDE_GLOBAL, TS_LOOKUP, true>(lexical, query)
         });
     };
-    let hash = scope_maps[ScopeId::ROOT.index()].hasher().hash_one(name);
+    let hash = scope_maps[ScopeId::ROOT].hasher().hash_one(name);
     let mut state = NameLookupResult::default();
     let mut ancestor = Some(scope);
     let mut child_kind = ScopeKind::Block;
@@ -224,7 +223,7 @@ fn lookup_name_with_ts_views_policy<
                 query,
                 hash,
                 |symbol| {
-                    let flags = symbols[symbol.index()].flags;
+                    let flags = symbols[symbol].flags;
                     if TS_LOOKUP {
                         binding_visible_from(child_kind, flags, space)
                             && symbol_mask.is_none_or(|mask| flags.intersects(mask))
@@ -239,11 +238,11 @@ fn lookup_name_with_ts_views_policy<
             if current == member_scope {
                 break;
             }
-            if arguments_barrier && scopes[current.index()].flags.arguments_barrier {
+            if arguments_barrier && scopes[current].flags.arguments_barrier {
                 return NameLookupResult::default();
             }
-            child_kind = scopes[current.index()].kind;
-            ancestor = scopes[current.index()].parent;
+            child_kind = scopes[current].kind;
+            ancestor = scopes[current].parent;
         }
     }
     while let Some(current) = ancestor {
@@ -253,9 +252,7 @@ fn lookup_name_with_ts_views_policy<
         // The lexical prefix already rejected this scope with the same rules.
         let binding = if PRECISE_IMPORT_ALIASES || current != member_scope {
             lookup_scope_binding::<TS_LOOKUP>(lexical, current, child_kind, query, hash, |symbol| {
-                if TS_LOOKUP
-                    && !binding_visible_from(child_kind, symbols[symbol.index()].flags, space)
-                {
+                if TS_LOOKUP && !binding_visible_from(child_kind, symbols[symbol].flags, space) {
                     return false;
                 }
                 let visibility = symbol_visibility::<PRECISE_IMPORT_ALIASES>(
@@ -284,7 +281,7 @@ fn lookup_name_with_ts_views_policy<
         {
             return state;
         }
-        let range = scope_views.ranges[current.index()];
+        let range = scope_views.ranges[current];
         let start = range.start as usize;
         for view in &ts.views[start..start + range.len as usize] {
             let Some(member) = view.lookup(ts.environments, hash, name) else {
@@ -306,11 +303,11 @@ fn lookup_name_with_ts_views_policy<
                 return state;
             }
         }
-        if arguments_barrier && scopes[current.index()].flags.arguments_barrier {
+        if arguments_barrier && scopes[current].flags.arguments_barrier {
             break;
         }
-        child_kind = scopes[current.index()].kind;
-        ancestor = scopes[current.index()].parent;
+        child_kind = scopes[current].kind;
+        ancestor = scopes[current].parent;
     }
     state
 }
@@ -332,7 +329,7 @@ pub(super) fn lookup_lexical_name<
     } = lexical;
     let arguments_barrier = query.arguments_barrier();
     let NameLookupQuery { scope, name, space } = query;
-    let hash = scope_maps[ScopeId::ROOT.index()].hasher().hash_one(name);
+    let hash = scope_maps[ScopeId::ROOT].hasher().hash_one(name);
     let mut ancestor = Some(scope);
     let mut child_kind = ScopeKind::Block;
     while let Some(current) = ancestor {
@@ -341,18 +338,18 @@ pub(super) fn lookup_lexical_name<
         }
         if let Some(symbol) =
             lookup_scope_binding::<TS_LOOKUP>(lexical, current, child_kind, query, hash, |symbol| {
-                let flags = symbols[symbol.index()].flags;
+                let flags = symbols[symbol].flags;
                 (!TS_LOOKUP || binding_visible_from(child_kind, flags, space))
                     && (!FILTER_BY_SPACE || flags.visible_in(space))
             })
         {
             return NameResolution::Resolved(symbol);
         }
-        if arguments_barrier && scopes[current.index()].flags.arguments_barrier {
+        if arguments_barrier && scopes[current].flags.arguments_barrier {
             break;
         }
-        child_kind = scopes[current.index()].kind;
-        ancestor = scopes[current.index()].parent;
+        child_kind = scopes[current].kind;
+        ancestor = scopes[current].parent;
     }
     NameResolution::Unresolved
 }
@@ -360,7 +357,7 @@ pub(super) fn lookup_lexical_name<
 #[inline(always)]
 pub(super) fn lookup_lexical_name_with_import_aliases<const INCLUDE_GLOBAL: bool>(
     lexical: LexicalLookup<'_, '_>,
-    import_alias_spaces: &[Option<TsResolvedAliasSpaces>],
+    import_alias_spaces: &TsImportAliasSpaces,
     query: NameLookupQuery<'_>,
     mut emit: impl FnMut(SymbolId),
 ) -> NameResolution {
@@ -372,7 +369,7 @@ pub(super) fn lookup_lexical_name_with_import_aliases<const INCLUDE_GLOBAL: bool
     } = lexical;
     let arguments_barrier = query.arguments_barrier();
     let NameLookupQuery { scope, name, space } = query;
-    let hash = scope_maps[ScopeId::ROOT.index()].hasher().hash_one(name);
+    let hash = scope_maps[ScopeId::ROOT].hasher().hash_one(name);
     let mut state = NameLookupResult::default();
     let mut ancestor = Some(scope);
     let mut child_kind = ScopeKind::Block;
@@ -382,7 +379,7 @@ pub(super) fn lookup_lexical_name_with_import_aliases<const INCLUDE_GLOBAL: bool
         }
         let binding =
             lookup_scope_binding::<true>(lexical, current, child_kind, query, hash, |symbol| {
-                if !binding_visible_from(child_kind, symbols[symbol.index()].flags, space) {
+                if !binding_visible_from(child_kind, symbols[symbol].flags, space) {
                     return false;
                 }
                 let visibility =
@@ -394,11 +391,11 @@ pub(super) fn lookup_lexical_name_with_import_aliases<const INCLUDE_GLOBAL: bool
         if binding.is_some() {
             return state.resolution();
         }
-        if arguments_barrier && scopes[current.index()].flags.arguments_barrier {
+        if arguments_barrier && scopes[current].flags.arguments_barrier {
             break;
         }
-        child_kind = scopes[current.index()].kind;
-        ancestor = scopes[current.index()].parent;
+        child_kind = scopes[current].kind;
+        ancestor = scopes[current].parent;
     }
     state.resolution()
 }
@@ -422,18 +419,17 @@ fn lookup_scope_binding<const TS_LOOKUP: bool>(
     } = lexical;
     // The implicit arguments object shadows an expression or if-branch name,
     // even though both are represented by the same function scope.
-    let arguments_barrier =
-        query.arguments_barrier() && scopes[current.index()].flags.arguments_barrier;
+    let arguments_barrier = query.arguments_barrier() && scopes[current].flags.arguments_barrier;
     let mut accept_visible = |symbol: SymbolId| {
         (!arguments_barrier
-            || !symbols[symbol.index()]
+            || !symbols[symbol]
                 .flags
                 .intersects(SymbolFlags::FUNCTION_EXPRESSION | SymbolFlags::ANNEX_B_IF_FUNCTION))
             && accept(symbol)
     };
     if TS_LOOKUP
         && is_signature_query(child, query.space)
-        && let Some(body) = scopes[current.index()].function_body
+        && let Some(body) = scopes[current].function_body
         && let Some(symbol) = lookup_scope_name(scope_maps, body, query.name, hash)
         && accept_visible(symbol)
     {
@@ -447,7 +443,7 @@ fn lookup_scope_binding<const TS_LOOKUP: bool>(
     // type parameter or a declaration hidden from a signature is rejected.
     let &internal_name = lexical
         .internal_names
-        .get(&(current, symbols[symbol.index()].name))?;
+        .get(&(current, symbols[symbol].name))?;
     if internal_name == symbol {
         return None;
     }
@@ -456,12 +452,12 @@ fn lookup_scope_binding<const TS_LOOKUP: bool>(
 
 #[inline(always)]
 pub(super) fn lookup_scope_name(
-    scope_maps: &[ScopeMap<'_>],
+    scope_maps: &ScopeMaps<'_>,
     scope: ScopeId,
     name: &[u8],
     hash: u64,
 ) -> Option<SymbolId> {
-    let bindings = &scope_maps[scope.index()];
+    let bindings = &scope_maps[scope];
     if bindings.is_empty() {
         return None;
     }
@@ -521,12 +517,12 @@ fn binding_visible_from(child: ScopeKind, flags: SymbolFlags, space: ReferenceSp
 
 #[inline]
 pub(super) fn symbol_visibility<const PRECISE_IMPORT_ALIASES: bool>(
-    symbols: &[Symbol],
-    import_alias_spaces: &[Option<TsResolvedAliasSpaces>],
+    symbols: &Symbols,
+    import_alias_spaces: &TsImportAliasSpaces,
     symbol: SymbolId,
     space: ReferenceSpace,
 ) -> BindingVisibility {
-    let flags = symbols[symbol.index()].flags;
+    let flags = symbols[symbol].flags;
     if PRECISE_IMPORT_ALIASES
         && let Some(spaces) = precise_import_alias_spaces(symbols, import_alias_spaces, symbol)
     {
@@ -541,13 +537,13 @@ pub(super) fn symbol_visibility<const PRECISE_IMPORT_ALIASES: bool>(
 
 #[inline]
 pub(super) fn precise_import_alias_spaces(
-    symbols: &[Symbol],
-    import_alias_spaces: &[Option<TsResolvedAliasSpaces>],
+    symbols: &Symbols,
+    import_alias_spaces: &TsImportAliasSpaces,
     symbol: SymbolId,
 ) -> Option<TsResolvedAliasSpaces> {
-    let flags = symbols[symbol.index()].flags;
+    let flags = symbols[symbol].flags;
     if !flags.intersects(SymbolFlags::ANY_IMPORT) {
         return None;
     }
-    import_alias_spaces.get(symbol.index()).copied().flatten()
+    import_alias_spaces.get(symbol).copied().flatten()
 }

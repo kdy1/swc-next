@@ -13,7 +13,7 @@ macro_rules! define_optional_index_type {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
         pub struct $name(u32);
 
-        impl oxc_index::Idx for $name {
+        impl swc_next_allocator::Idx for $name {
             const MAX: usize = (u32::MAX - 1) as usize;
 
             unsafe fn from_usize_unchecked(idx: usize) -> Self {

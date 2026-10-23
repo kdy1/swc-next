@@ -2,7 +2,7 @@ use crate::{AstNode, AstUtf8, AstWtf8, SubRange};
 
 use super::{NodeId, sealed::ExtraDataValue as SealedExtraDataValue};
 
-oxc_index::define_index_type! {
+swc_next_allocator::define_index_type! {
     #[repr(transparent)]
     pub struct ExtraDataId = u32;
     MAX_INDEX = u32::MAX as usize;

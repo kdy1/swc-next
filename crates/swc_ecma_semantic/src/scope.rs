@@ -1,6 +1,7 @@
-use oxc_index::Idx;
-use swc_next_allocator::vec::Vec as ArenaVec;
+use swc_next_allocator::vec::ArenaIndexVec;
 use swc_next_ecma_ast::{Ast, NodeId, ScopeId, SourceType};
+
+use crate::Scopes;
 
 /// A lexical environment or a TypeScript name-lookup view in the scope tree.
 /// Lookup views restrict visible declarations without introducing a runtime
@@ -126,7 +127,7 @@ pub struct ScopeFlags {
 /// All scopes of a tree, indexed by [`ScopeId`].
 #[derive(Debug)]
 pub struct ScopeTree<'a> {
-    pub(crate) list: ArenaVec<'a, Scope>,
+    pub(crate) list: ArenaIndexVec<'a, ScopeId, Scope>,
 }
 
 impl<'a> ScopeTree<'a> {
@@ -139,7 +140,7 @@ impl<'a> ScopeTree<'a> {
         let allocator = tree.allocator();
         let estimated_scopes = 16usize.max(tree.node_count() / 16);
         let mut scopes = Self {
-            list: ArenaVec::with_capacity_in(estimated_scopes, allocator),
+            list: ArenaIndexVec::with_capacity_in(estimated_scopes, allocator),
         };
         scopes.push_root(root.node_id(), tree.source_type(), root_strict);
         scopes
@@ -199,7 +200,7 @@ impl<'a> ScopeTree<'a> {
     ) -> ScopeId {
         // The current length is the about-to-be-assigned id and must fit u32.
         debug_assert!(self.list.len() < u32::MAX as usize);
-        let id = ScopeId::from_usize(self.list.len());
+        let id = self.list.next_idx();
         let hoist_target = self.get(parent).hoist_target;
         self.list.push(Scope {
             active: true,
@@ -220,7 +221,7 @@ impl<'a> ScopeTree<'a> {
     /// The scope with the given id.
     #[inline]
     pub fn get(&self, id: ScopeId) -> Scope {
-        self.list[id.index()]
+        self.list[id]
     }
 
     /// Walks from `start` up to the root, yielding `start` first.
@@ -234,7 +235,7 @@ impl<'a> ScopeTree<'a> {
 
 /// Yields each scope id from a starting scope up to the root.
 pub struct AncestorIterator<'a> {
-    list: &'a [Scope],
+    list: &'a Scopes,
     current: Option<ScopeId>,
 }
 
@@ -244,7 +245,7 @@ impl Iterator for AncestorIterator<'_> {
     /// The next scope id, or `None` past the root.
     fn next(&mut self) -> Option<Self::Item> {
         let id = self.current?;
-        self.current = self.list[id.index()].parent;
+        self.current = self.list[id].parent;
         Some(id)
     }
 }

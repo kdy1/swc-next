@@ -1,6 +1,6 @@
 use super::sealed::AstNode as SealedAstNode;
 
-oxc_index::define_index_type! {
+swc_next_allocator::define_index_type! {
     #[repr(transparent)]
     pub struct NodeId = u32;
     MAX_INDEX = u32::MAX as usize;

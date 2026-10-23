@@ -6,7 +6,7 @@
 )]
 use crate::generated::ast_payload::*;
 use crate::*;
-use oxc_index::Idx;
+use swc_next_allocator::Idx;
 impl<'a> Ast<'a> {
     #[inline]
     pub fn program(

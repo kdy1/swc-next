@@ -12,7 +12,6 @@ version               = "0.3.2"
 bitflags   = { workspace = true }
 hashbrown  = { workspace = true }
 memchr     = { workspace = true }
-oxc_index  = { workspace = true }
 rustc-hash = { workspace = true }
 zmij_ecma  = { workspace = true }
 

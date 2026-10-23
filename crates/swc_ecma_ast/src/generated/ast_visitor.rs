@@ -1,7 +1,7 @@
 #![allow(unused, clippy::useless_conversion, clippy::single_match)]
 use crate::visit::{TraverseCtx, TraverseMutCtx, traverse_mut_slot};
 use crate::*;
-use oxc_index::Idx;
+use swc_next_allocator::Idx;
 pub trait Visit<'a> {
     fn ast(&self) -> &Ast<'a>;
     #[inline]

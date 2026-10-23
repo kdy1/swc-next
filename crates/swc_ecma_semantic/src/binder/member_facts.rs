@@ -3,7 +3,6 @@
 use std::{borrow::Cow, hash::BuildHasher};
 
 use hashbrown::{HashMap, HashSet};
-use oxc_index::Idx;
 use rustc_hash::FxBuildHasher;
 use swc_next_ecma_ast::{
     Ast, AstWtf8, ClassType, MemberExpression, NodeId, NodeKindData, ScopeId, SymbolId,
@@ -13,8 +12,9 @@ use swc_next_ecma_ast::{
 use super::lookup::lookup_scope_name;
 use super::{Range, SymbolFlags, SymbolTracker, TsScopeViewIndex};
 use crate::{
+    Scopes,
     ecmascript::unwrap_parentheses,
-    scope::{Scope, ScopeKind, ScopeTree},
+    scope::{ScopeKind, ScopeTree},
 };
 
 /// The two containers TS7 checks when binding an expando assignment.
@@ -49,7 +49,7 @@ struct PropertyNames<'tree> {
 
 pub(super) struct TsMemberFactsLookup<'lookup, 'arena> {
     pub(super) tracker: &'lookup SymbolTracker<'arena>,
-    pub(super) scopes: &'lookup [Scope],
+    pub(super) scopes: &'lookup Scopes,
     pub(super) scope_views: Option<&'lookup TsScopeViewIndex<'arena>>,
 }
 
@@ -82,7 +82,7 @@ impl<'tree> TsPropertyValues<'tree> {
 // Eligible names requiring types remain unknown, never proof of absence.
 pub(super) fn collect_ts_property_values<'tree>(
     tree: &'tree Ast<'_>,
-    scopes: &[Scope],
+    scopes: &Scopes,
     assignments: &[(MemberExpression, TsExpandoBindingSite)],
     lookup: &TsMemberFactsLookup<'_, '_>,
 ) -> TsPropertyValues<'tree> {
@@ -183,12 +183,12 @@ impl TsMemberFactsLookup<'_, '_> {
     }
 
     fn container_binding(&self, name: &[u8], scope: ScopeId) -> Option<SymbolId> {
-        let hash = self.tracker.scope_maps[ScopeId::ROOT.index()]
+        let hash = self.tracker.scope_maps[ScopeId::ROOT]
             .hasher()
             .hash_one(name);
         // TS has one locals table for a function, including its body when
         // ECMAScript needs separate parameter and body environments.
-        let body = self.scopes[scope.index()].function_body;
+        let body = self.scopes[scope].function_body;
         let local = body
             .and_then(|body| lookup_scope_name(&self.tracker.scope_maps, body, name, hash))
             .or_else(|| lookup_scope_name(&self.tracker.scope_maps, scope, name, hash));
@@ -201,7 +201,7 @@ impl TsMemberFactsLookup<'_, '_> {
         }
         let range = self
             .scope_views
-            .map_or_else(Range::default, |views| views.ranges[scope.index()]);
+            .map_or_else(Range::default, |views| views.ranges[scope]);
         let start = range.start as usize;
         for view in &self.tracker.ts_member_views[start..start + range.len as usize] {
             if let Some(candidate) =
@@ -282,7 +282,7 @@ impl TsExpandoBindingSite {
                 let find_scope = |owner| {
                     let mut current = Some(current_scope);
                     while let Some(id) = current {
-                        let scope = &scopes.list[id.index()];
+                        let scope = &scopes.list[id];
                         if scope.node == owner && !scope.kind.is_ts_lookup_view() {
                             return Some(id);
                         }

@@ -251,7 +251,7 @@ macro_rules! multi_index_vec {
 mod tests {
     use crate::Allocator;
 
-    oxc_index::define_index_type! {
+    crate::define_index_type! {
         struct TestId = u32;
         MAX_INDEX = u32::MAX as usize;
     }
@@ -264,7 +264,7 @@ mod tests {
         }
     }
 
-    oxc_index::define_index_type! {
+    crate::define_index_type! {
         struct SmallId = u8;
         MAX_INDEX = 3;
     }

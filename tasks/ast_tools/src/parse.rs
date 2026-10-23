@@ -4,8 +4,8 @@ use std::{
 };
 
 use indexmap::IndexSet;
-use oxc_index::IndexVec;
 use quote::ToTokens;
+use swc_next_allocator::IndexVec;
 use syn::{
     Attribute, Field, GenericArgument, Ident, Item, ItemEnum, ItemStruct, Meta, PathArguments,
     Type, Variant, punctuated::Punctuated, token::Comma,

@@ -41,7 +41,7 @@ pub fn ast_builder(schema: &Schema) -> RawOutput {
             )]
             use crate::*;
             use crate::generated::ast_payload::*;
-            use oxc_index::Idx;
+            use swc_next_allocator::Idx;
 
             impl<'a> Ast<'a> {
                 #build_functions

@@ -135,12 +135,12 @@ version = "0.1.0"
 dependencies = [
  "convert_case",
  "indexmap",
- "oxc_index",
  "phf 0.14.0",
  "prettyplease 0.3.0",
  "proc-macro2",
  "quote",
  "swc_core",
+ "swc_next_allocator",
  "syn 3.0.9",
 ]
 
@@ -2900,7 +2900,6 @@ version = "0.3.2"
 dependencies = [
  "cow-utils",
  "num-bigint 0.5.1",
- "oxc_index",
  "swc_next_allocator",
  "swc_next_ast_macros",
  "unicode-id-start",
@@ -2960,7 +2959,6 @@ dependencies = [
  "clap",
  "hashbrown 0.17.1",
  "memchr",
- "oxc_index",
  "rustc-hash",
  "swc_next_allocator",
  "swc_next_ecma_ast",

@@ -6,8 +6,7 @@
 use std::{fmt::Write, fs, path::Path};
 
 use clap::Parser;
-use oxc_index::Idx;
-use swc_next_allocator::Allocator;
+use swc_next_allocator::{Allocator, Idx};
 use swc_next_ecma_ast::{Ast, Lang, ScopeId, SourceType};
 use swc_next_ecma_parser::{NoTokenParserConfig, Options as ParserOptions, Parser as EcmaParser};
 use swc_next_ecma_semantic::{

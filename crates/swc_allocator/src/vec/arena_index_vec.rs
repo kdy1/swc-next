@@ -7,9 +7,7 @@ use std::{
     slice,
 };
 
-use oxc_index::IndexSlice;
-
-use crate::{Allocator, CloneIn, Idx, vec::Vec};
+use crate::{Allocator, CloneIn, Idx, IndexSlice, vec::Vec};
 
 /// A growable arena-backed vector indexed by `I`.
 ///
@@ -24,7 +22,7 @@ use crate::{Allocator, CloneIn, Idx, vec::Vec};
 /// ```
 /// use swc_next_allocator::{Allocator, vec::ArenaIndexVec};
 ///
-/// oxc_index::define_index_type! {
+/// swc_next_allocator::define_index_type! {
 ///     struct NodeId = u32;
 ///     MAX_INDEX = u32::MAX as usize;
 /// }
@@ -88,6 +86,23 @@ impl<'alloc, I: Idx, T> ArenaIndexVec<'alloc, I, T> {
     #[inline]
     pub fn into_vec(self) -> Vec<'alloc, T> {
         self.raw
+    }
+
+    /// Returns the allocator backing this vector.
+    #[inline]
+    pub fn bump(&self) -> &'alloc Allocator {
+        self.raw.bump()
+    }
+
+    /// Sets the initialized length without changing the allocation.
+    ///
+    /// # Safety
+    /// `new_len` must not exceed capacity, and every element in `0..new_len`
+    /// must be initialized.
+    #[inline]
+    pub unsafe fn set_len(&mut self, new_len: usize) {
+        Self::check_len(new_len);
+        unsafe { self.raw.set_len(new_len) };
     }
 
     #[inline]
@@ -166,6 +181,20 @@ impl<'alloc, I: Idx, T> ArenaIndexVec<'alloc, I, T> {
         self.raw.resize(new_len, value);
     }
 
+    /// Appends a slice by copying its elements.
+    #[inline]
+    pub fn extend_from_slice_copy(&mut self, other: &[T])
+    where
+        T: Copy,
+    {
+        Self::check_len(
+            self.len()
+                .checked_add(other.len())
+                .expect("capacity overflow"),
+        );
+        self.raw.extend_from_slice_copy(other);
+    }
+
     /// Moves all elements from `other` to the end of this vector.
     #[inline]
     pub fn append(&mut self, other: &mut Self) {
@@ -187,6 +216,24 @@ impl<'alloc, I: Idx, T> ArenaIndexVec<'alloc, I, T> {
     #[inline]
     pub fn swap_remove(&mut self, index: I) -> T {
         self.raw.swap_remove(index.index())
+    }
+
+    /// Returns an element without checking its index.
+    ///
+    /// # Safety
+    /// `index` must identify an initialized element of this vector.
+    #[inline]
+    pub unsafe fn get_unchecked(&self, index: I) -> &T {
+        unsafe { self.raw.get_unchecked(index.index()) }
+    }
+
+    /// Returns a mutable element without checking its index.
+    ///
+    /// # Safety
+    /// `index` must identify an initialized element of this vector.
+    #[inline]
+    pub unsafe fn get_unchecked_mut(&mut self, index: I) -> &mut T {
+        unsafe { self.raw.get_unchecked_mut(index.index()) }
     }
 
     /// Returns a slice with type-safe indices.
@@ -307,12 +354,12 @@ mod tests {
 
     use super::*;
 
-    oxc_index::define_index_type! {
+    crate::define_index_type! {
         struct TestId = u32;
         MAX_INDEX = u32::MAX as usize;
     }
 
-    oxc_index::define_index_type! {
+    crate::define_index_type! {
         struct SmallId = u8;
         MAX_INDEX = 3;
         DISABLE_MAX_INDEX_CHECK = true;
@@ -385,6 +432,33 @@ mod tests {
     }
 
     #[test]
+    fn raw_storage() {
+        let allocator = Allocator::new();
+        let mut data = ArenaIndexVec::<TestId, u32>::with_capacity_in(2, &allocator);
+        assert!(std::ptr::eq(data.bump(), &allocator));
+
+        // SAFETY: The allocation has room for two u32 values, both initialized
+        // before exposing them through the vector's length.
+        unsafe {
+            let ptr = data.as_mut_slice().as_mut_ptr();
+            ptr.write(10);
+            ptr.add(1).write(20);
+            data.set_len(2);
+        }
+        assert_eq!(data.as_raw_slice(), [10, 20]);
+
+        // SAFETY: Both indices identify initialized elements.
+        unsafe {
+            assert_eq!(*data.get_unchecked(TestId::from(0usize)), 10);
+            *data.get_unchecked_mut(TestId::from(1usize)) = 30;
+        }
+        assert_eq!(data.as_raw_slice(), [10, 30]);
+
+        data.extend_from_slice_copy(&[40, 50]);
+        assert_eq!(data.as_raw_slice(), [10, 30, 40, 50]);
+    }
+
+    #[test]
     fn index_limits() {
         let allocator = Allocator::new();
         let mut data = ArenaIndexVec::<SmallId, _>::from_iter_in([0, 1, 2, 3], &allocator);
@@ -393,6 +467,8 @@ mod tests {
         assert_eq!(data.as_raw_slice(), [0, 1, 2, 3]);
         assert!(catch_unwind(AssertUnwindSafe(|| data.reserve(1))).is_err());
         assert!(catch_unwind(AssertUnwindSafe(|| data.resize(5, 0))).is_err());
+        assert!(catch_unwind(AssertUnwindSafe(|| data.extend_from_slice_copy(&[4]))).is_err());
+        assert_eq!(data.as_raw_slice(), [0, 1, 2, 3]);
 
         let mut other = ArenaIndexVec::from_iter_in([4], &allocator);
         assert!(catch_unwind(AssertUnwindSafe(|| data.append(&mut other))).is_err());

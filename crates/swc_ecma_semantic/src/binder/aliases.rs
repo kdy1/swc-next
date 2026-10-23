@@ -3,9 +3,8 @@
 use std::{hash::BuildHasher, ops::ControlFlow};
 
 use hashbrown::{HashMap, HashSet};
-use oxc_index::Idx;
 use rustc_hash::FxBuildHasher;
-use swc_next_allocator::{Allocator, vec::Vec as ArenaVec};
+use swc_next_allocator::{Allocator, vec::ArenaIndexVec};
 use swc_next_ecma_ast::{
     Ast, ImportOrExportKind, NodeId, ReferenceId, ScopeId, SymbolId, TsModuleReferenceData,
     TsQualifiedNameLeft, TsQualifiedNameLeftData, TsTypeName, TsTypeNameData,
@@ -23,10 +22,7 @@ use super::{
     TsNamespaceExportAliasLookup, TsResolvedAliasSpaces, TsResolvedExportAliasTarget,
     TsResolvedImportTarget, TsScopeViewIndex, ts_resolved_alias_spaces,
 };
-use crate::{
-    SyntaxChecks,
-    scope::{Scope, ScopeTree},
-};
+use crate::{Scopes, SyntaxChecks, scope::ScopeTree};
 
 impl<'a> SymbolTracker<'a> {
     pub(crate) fn resolve_ts_aliases(
@@ -116,7 +112,7 @@ impl<'a> SymbolTracker<'a> {
                     if entry.type_only {
                         continue;
                     }
-                    let name = self.references[alias.local_reference.index()].name;
+                    let name = self.references[alias.local_reference].name;
                     issues.push(TsNamespaceExportAliasIssue::Missing {
                         name,
                         node: alias.node,
@@ -124,7 +120,7 @@ impl<'a> SymbolTracker<'a> {
                     continue;
                 }
                 TsExportAliasResolution::NonLocal => {
-                    let name = self.references[alias.local_reference.index()].name;
+                    let name = self.references[alias.local_reference].name;
                     issues.push(TsNamespaceExportAliasIssue::NonLocal {
                         name,
                         node: alias.node,
@@ -147,7 +143,7 @@ impl<'a> SymbolTracker<'a> {
                 },
             );
             let direct_spaces = resolver.resolved_symbol_conflict_spaces(direct);
-            let direct_flags = self.symbols[direct.index()].flags;
+            let direct_flags = self.symbols[direct].flags;
             let conflict = direct_flags.intersects(SymbolFlags::ANY_IMPORT)
                 || alias_spaces.intersects(direct_spaces);
             if conflict {
@@ -198,8 +194,8 @@ impl<'a> SymbolTracker<'a> {
                     if !checks.ts_import_alias_conflicts() {
                         continue;
                     }
-                    let alias_name = self.symbols[alias.alias.index()].name;
-                    let alias_scope = self.references[alias.root_reference.index()].scope;
+                    let alias_name = self.symbols[alias.alias].name;
+                    let alias_scope = self.references[alias.root_reference].scope;
                     let body_member = scope_views
                         .as_ref()
                         .and_then(|scope_views| {
@@ -259,7 +255,7 @@ impl<'a> SymbolTracker<'a> {
             }
         }
         for reference in erased_targets {
-            let reference = &mut self.references[reference.index()];
+            let reference = &mut self.references[reference];
             reference.flags = reference.flags.no_access();
         }
         self.ts_import_aliases = Some(aliases);
@@ -282,7 +278,7 @@ enum TsExportAliasState<'a> {
 struct TsExportAliasResolver<'tracker, 'a> {
     tracker: &'tracker SymbolTracker<'a>,
     tree: &'tracker Ast<'a>,
-    scopes: &'tracker [Scope],
+    scopes: &'tracker Scopes,
     scope_views: Option<&'tracker TsScopeViewIndex<'a>>,
     indices: Option<HashMap<NodeId, usize, FxBuildHasher>>,
     states: Vec<TsExportAliasState<'a>>,
@@ -293,7 +289,7 @@ impl<'tracker, 'a> TsExportAliasResolver<'tracker, 'a> {
     fn new(
         tracker: &'tracker SymbolTracker<'a>,
         tree: &'tracker Ast<'a>,
-        scopes: &'tracker [Scope],
+        scopes: &'tracker Scopes,
         scope_views: Option<&'tracker TsScopeViewIndex<'a>>,
     ) -> Self {
         let aliases = &tracker.pending_ts_namespace_export_aliases;
@@ -339,8 +335,7 @@ impl<'tracker, 'a> TsExportAliasResolver<'tracker, 'a> {
                                     ref mut public,
                                 } = target.target
                                 {
-                                    let reference =
-                                        self.tracker.references[alias.local_reference.index()];
+                                    let reference = self.tracker.references[alias.local_reference];
                                     let name = self.tree.get_utf8(reference.name).as_bytes();
                                     if let Some(exported) =
                                         self.tracker.ts_exported_value(lexical, name)
@@ -369,11 +364,11 @@ impl<'tracker, 'a> TsExportAliasResolver<'tracker, 'a> {
         index: usize,
     ) -> ControlFlow<usize, TsNamespaceExportAliasLookup<'a>> {
         let alias = self.tracker.pending_ts_namespace_export_aliases[index];
-        let reference = self.tracker.references[alias.local_reference.index()];
+        let reference = self.tracker.references[alias.local_reference];
         // Export specifiers select a name across all declaration spaces.
         debug_assert_eq!(reference.flags.space, ReferenceSpace::Any);
         let name = self.tree.get_utf8(reference.name).as_bytes();
-        let hash = self.tracker.scope_maps[ScopeId::ROOT.index()]
+        let hash = self.tracker.scope_maps[ScopeId::ROOT]
             .hasher()
             .hash_one(name);
         let mut ancestor = Some(reference.scope);
@@ -381,7 +376,7 @@ impl<'tracker, 'a> TsExportAliasResolver<'tracker, 'a> {
             if current == ScopeId::ROOT {
                 break;
             }
-            if let Some((_, &symbol)) = self.tracker.scope_maps[current.index()]
+            if let Some((_, &symbol)) = self.tracker.scope_maps[current]
                 .raw_entry()
                 .from_hash(hash, |candidate| *candidate == name)
             {
@@ -405,7 +400,7 @@ impl<'tracker, 'a> TsExportAliasResolver<'tracker, 'a> {
             }
             let range = self
                 .scope_views
-                .map_or_else(Range::default, |views| views.ranges[current.index()]);
+                .map_or_else(Range::default, |views| views.ranges[current]);
             let start = range.start as usize;
             for view in &self.tracker.ts_member_views[start..start + range.len as usize] {
                 let Some(candidate) =
@@ -424,7 +419,7 @@ impl<'tracker, 'a> TsExportAliasResolver<'tracker, 'a> {
                 };
                 return self.resolve_member_target(direct, alias.node);
             }
-            ancestor = self.scopes[current.index()].parent;
+            ancestor = self.scopes[current].parent;
         }
         let global = lookup_lexical_name::<true, true, true>(
             LexicalLookup {
@@ -446,8 +441,8 @@ impl<'tracker, 'a> TsExportAliasResolver<'tracker, 'a> {
         // TS7 checks the target's declaration container, not the scope where
         // lookup found it. Global augmentations project their members into
         // ROOT while preserving each member's declaration in the module body.
-        let declaration = self.tracker.symbols[symbol.index()].declaration;
-        let declaration_scope = self.tracker.declarations[declaration.index()].scope;
+        let declaration = self.tracker.symbols[symbol].declaration;
+        let declaration_scope = self.tracker.declarations[declaration].scope;
         let target = if declaration_scope == ScopeId::ROOT {
             TsNamespaceExportAliasLookup::NonLocal
         } else {
@@ -568,7 +563,7 @@ impl<'a> TsNamespaceTargetResolution<'a> {
 struct TsImportAliasResolver<'tracker, 'a> {
     tracker: &'tracker SymbolTracker<'a>,
     tree: &'tracker Ast<'a>,
-    scopes: &'tracker [Scope],
+    scopes: &'tracker Scopes,
     scope_views: Option<&'tracker TsScopeViewIndex<'a>>,
     aliases: HashMap<SymbolId, TsImportAliasInfo, FxBuildHasher>,
     alias_targets: Vec<Option<TsImportTargetResolution<'a>>>,
@@ -580,7 +575,7 @@ impl<'tracker, 'a> TsImportAliasResolver<'tracker, 'a> {
     fn new(
         tracker: &'tracker SymbolTracker<'a>,
         tree: &'tracker Ast<'a>,
-        scopes: &'tracker [Scope],
+        scopes: &'tracker Scopes,
         scope_views: Option<&'tracker TsScopeViewIndex<'a>>,
     ) -> Self {
         let mut aliases =
@@ -698,7 +693,7 @@ impl<'tracker, 'a> TsImportAliasResolver<'tracker, 'a> {
             }
             // Local aliases are resolved by the lexical index. Only exported
             // symbols can require refinement in a shared member environment.
-            if !self.tracker.symbols[alias.alias.index()]
+            if !self.tracker.symbols[alias.alias]
                 .flags
                 .contains(SymbolFlags::EXPORTED)
             {
@@ -711,10 +706,10 @@ impl<'tracker, 'a> TsImportAliasResolver<'tracker, 'a> {
                 let Some(redeclarations) = self.tracker.redeclarations.get(&alias.alias) else {
                     return TsMemberVisibility::certain(TsMemberSpaces::empty());
                 };
-                let first = self.tracker.symbols[alias.alias.index()].declaration;
+                let first = self.tracker.symbols[alias.alias].declaration;
                 let certain = std::iter::once(first)
                     .chain(redeclarations.iter().copied())
-                    .map(|id| self.tracker.declarations[id.index()].flags)
+                    .map(|id| self.tracker.declarations[id].flags)
                     .filter(|flags| {
                         !flags.intersects(SymbolFlags::ANY_IMPORT | SymbolFlags::ENUM_MEMBER)
                     })
@@ -768,15 +763,15 @@ impl<'tracker, 'a> TsImportAliasResolver<'tracker, 'a> {
     ) -> TsImportAliasIndex<'a> {
         let targets = self.resolved_targets();
         let public = self.space_graph.public;
-        let mut resolved = ArenaVec::with_capacity_in(symbol_count, allocator);
+        let mut resolved = ArenaIndexVec::with_capacity_in(symbol_count, allocator);
         resolved.resize(symbol_count, None);
-        let mut spaces = ArenaVec::with_capacity_in(symbol_count, allocator);
+        let mut spaces = ArenaIndexVec::with_capacity_in(symbol_count, allocator);
         // Unrefined symbols retain ordinary local-binding semantics; UNKNOWN
         // is reserved for aliases whose target meaning is genuinely opaque.
         spaces.resize(symbol_count, None);
         for (symbol, alias) in self.aliases {
-            spaces[symbol.index()] = Some(public[alias.index]);
-            resolved[symbol.index()] = targets[alias.index];
+            spaces[symbol] = Some(public[alias.index]);
+            resolved[symbol] = targets[alias.index];
         }
         TsImportAliasIndex {
             spaces,
@@ -882,7 +877,7 @@ impl<'tracker, 'a> TsImportAliasResolver<'tracker, 'a> {
         else {
             return ControlFlow::Continue(None);
         };
-        let scope = self.tracker.references[target.root_reference.index()].scope;
+        let scope = self.tracker.references[target.root_reference].scope;
         self.resolve_type_name(scope, name)
     }
 
@@ -1040,12 +1035,12 @@ impl<'tracker, 'a> TsImportAliasResolver<'tracker, 'a> {
         scope: ScopeId,
         name: &[u8],
     ) -> ControlFlow<SymbolId, Option<TsResolvedImportTarget<'a>>> {
-        let hash = self.tracker.scope_maps[ScopeId::ROOT.index()]
+        let hash = self.tracker.scope_maps[ScopeId::ROOT]
             .hasher()
             .hash_one(name);
         let mut ancestor = Some(scope);
         while let Some(current) = ancestor {
-            let lexical = self.tracker.scope_maps[current.index()]
+            let lexical = self.tracker.scope_maps[current]
                 .raw_entry()
                 .from_hash(hash, |candidate| *candidate == name)
                 .map(|(_, &symbol)| symbol);
@@ -1055,9 +1050,9 @@ impl<'tracker, 'a> TsImportAliasResolver<'tracker, 'a> {
                 return ControlFlow::Continue(Some(TsResolvedImportTarget::symbol(symbol)));
             }
 
-            let range = self.scope_views.map_or_else(Range::default, |scope_views| {
-                scope_views.ranges[current.index()]
-            });
+            let range = self
+                .scope_views
+                .map_or_else(Range::default, |scope_views| scope_views.ranges[current]);
             let start = range.start as usize;
             for index in start..start + range.len as usize {
                 let view = self.tracker.ts_member_views[index];
@@ -1085,7 +1080,7 @@ impl<'tracker, 'a> TsImportAliasResolver<'tracker, 'a> {
                     }
                 }
             }
-            ancestor = self.scopes[current.index()].parent;
+            ancestor = self.scopes[current].parent;
         }
         ControlFlow::Continue(None)
     }
@@ -1109,10 +1104,7 @@ impl<'tracker, 'a> TsImportAliasResolver<'tracker, 'a> {
         // intact: an alias can still supply members absent from that namespace.
         loop {
             if let Some(symbol) = target.direct {
-                if self.tracker.symbols[symbol.index()]
-                    .flags
-                    .in_namespace_space()
-                {
+                if self.tracker.symbols[symbol].flags.in_namespace_space() {
                     return ControlFlow::Continue(TsNamespaceTargetResolution::Resolved(target));
                 }
                 match self.resolve_namespace_meaning(symbol)? {
@@ -1149,7 +1141,7 @@ impl<'tracker, 'a> TsImportAliasResolver<'tracker, 'a> {
         &self,
         symbol: SymbolId,
     ) -> ControlFlow<SymbolId, TsNamespaceTargetResolution<'a>> {
-        let flags = self.tracker.symbols[symbol.index()].flags;
+        let flags = self.tracker.symbols[symbol].flags;
         if flags.in_namespace_space() {
             return ControlFlow::Continue(TsNamespaceTargetResolution::Resolved(
                 TsResolvedImportTarget::symbol(symbol),
@@ -1173,7 +1165,7 @@ impl<'tracker, 'a> TsImportAliasResolver<'tracker, 'a> {
     }
 
     fn resolved_symbol_spaces(&mut self, root: SymbolId, conflict: bool) -> TsResolvedAliasSpaces {
-        let flags = self.tracker.symbols[root.index()].flags;
+        let flags = self.tracker.symbols[root].flags;
         if !flags.intersects(SymbolFlags::ANY_IMPORT) {
             return ts_resolved_alias_spaces(flags);
         }
@@ -1239,7 +1231,7 @@ impl<'tracker, 'a> TsImportAliasResolver<'tracker, 'a> {
             let index = self.aliases[&alias.alias].index;
             if let Some(dependency) = self.aliases.get(&symbol) {
                 dependencies[index] = Some(dependency.index);
-            } else if !self.tracker.symbols[symbol.index()]
+            } else if !self.tracker.symbols[symbol]
                 .flags
                 .intersects(SymbolFlags::ANY_IMPORT)
             {
@@ -1279,7 +1271,7 @@ impl<'tracker, 'a> TsImportAliasResolver<'tracker, 'a> {
     // declarations have opaque targets; internal aliases use graph edges.
     fn dependency_spaces(&self, symbol: SymbolId) -> TsResolvedAliasSpaces {
         let known = self.non_import_spaces(symbol);
-        if self.tracker.symbols[symbol.index()]
+        if self.tracker.symbols[symbol]
             .flags
             .intersects(SymbolFlags::ANY_IMPORT)
         {
@@ -1290,12 +1282,12 @@ impl<'tracker, 'a> TsImportAliasResolver<'tracker, 'a> {
     }
 
     fn non_import_spaces(&self, symbol: SymbolId) -> TsResolvedAliasSpaces {
-        let flags = self.tracker.symbols[symbol.index()].flags;
+        let flags = self.tracker.symbols[symbol].flags;
         // Without aliases these spaces are additive across merged declarations.
         if !flags.intersects(SymbolFlags::ANY_IMPORT) {
             return ts_resolved_alias_spaces(flags);
         }
-        let first = self.tracker.symbols[symbol.index()].declaration;
+        let first = self.tracker.symbols[symbol].declaration;
         std::iter::once(first)
             .chain(
                 self.tracker
@@ -1305,7 +1297,7 @@ impl<'tracker, 'a> TsImportAliasResolver<'tracker, 'a> {
                     .flatten()
                     .copied(),
             )
-            .map(|declaration| self.tracker.declarations[declaration.index()].flags)
+            .map(|declaration| self.tracker.declarations[declaration].flags)
             .filter(|flags| !flags.intersects(SymbolFlags::ANY_IMPORT))
             .fold(TsResolvedAliasSpaces::empty(), |spaces, flags| {
                 spaces | ts_resolved_alias_spaces(flags)

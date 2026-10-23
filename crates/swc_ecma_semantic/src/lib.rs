@@ -19,10 +19,10 @@
 #![deny(clippy::all)]
 #![deny(unused)]
 
-use oxc_index::Idx;
 use swc_next_allocator::{
+    Idx, IndexSlice,
     hash_map::{HashMap as ArenaHashMap, Values},
-    vec::Vec as ArenaVec,
+    vec::{ArenaIndexVec, Vec as ArenaVec},
 };
 use swc_next_ecma_ast::{Ast, AstWtf8, Diagnostic, NodeId, ScopeId, SymbolId, VisitWith};
 
@@ -46,15 +46,20 @@ pub use scope_model::ScopeModel;
 pub use swc_next_ecma_ast::ReferenceId;
 pub use syntax_checks::SyntaxChecks;
 
-oxc_index::define_nonmax_u32_index_type! {
+swc_next_allocator::define_nonmax_u32_index_type! {
     /// Identifier for a declaration in a completed [`Semantic`] model.
     pub struct DeclarationId;
 }
+
+type Symbols = IndexSlice<SymbolId, [Symbol]>;
+type Declarations = IndexSlice<DeclarationId, [Declaration]>;
+type Scopes = IndexSlice<ScopeId, [scope::Scope]>;
 
 // Internal names survive replacement of their scope's ordinary binding.
 type InternalNames<'a> = ArenaHashMap<'a, (ScopeId, AstWtf8), SymbolId>;
 
 type ScopeMap<'a> = ArenaHashMap<'a, &'a [u8], SymbolId>;
+type ScopeMaps<'a> = IndexSlice<ScopeId, [ScopeMap<'a>]>;
 // Most scopes have no var declarations hoisting through them.
 // Keep the var declaration, since its symbol may also contain functions.
 type HoistingMap<'a> =
@@ -83,23 +88,23 @@ pub struct Semantic<'a> {
     scopes: ScopeTree<'a>,
     jsx_usages: ArenaVec<'a, JsxUsage>,
     /// Every symbol, in declaration order, indexed by [`SymbolId`].
-    symbols: ArenaVec<'a, Symbol>,
+    symbols: ArenaIndexVec<'a, SymbolId, Symbol>,
     /// Every reference, in source order, indexed by [`ReferenceId`].
-    references: ArenaVec<'a, Reference>,
+    references: ArenaIndexVec<'a, ReferenceId, Reference>,
     reference_candidates: binder::ReferenceCandidates<'a>,
     /// Every declaration in source order, indexed by [`DeclarationId`].
-    declarations: ArenaVec<'a, Declaration>,
+    declarations: ArenaIndexVec<'a, DeclarationId, Declaration>,
     /// Additional declaration ids for redeclared symbols, in source order.
     redeclarations: Redeclarations<'a>,
 
     use_ids: ArenaVec<'a, ReferenceId>,
-    use_ranges: ArenaVec<'a, Range>,
-    scope_maps: ArenaVec<'a, ScopeMap<'a>>,
+    use_ranges: ArenaIndexVec<'a, SymbolId, Range>,
+    scope_maps: ArenaIndexVec<'a, ScopeId, ScopeMap<'a>>,
     internal_names: InternalNames<'a>,
-    hoisting_variables: ArenaVec<'a, HoistingMap<'a>>,
+    hoisting_variables: ArenaIndexVec<'a, ScopeId, HoistingMap<'a>>,
 
     /// Each node records one binding, reference, or created scope identity.
-    node_semantic: ArenaVec<'a, NodeSemanticId>,
+    node_semantic: ArenaIndexVec<'a, NodeId, NodeSemanticId>,
 
     ts_members: TsMemberIndex<'a>,
 }
@@ -147,17 +152,17 @@ impl<'a> Semantic<'a> {
 
     /// The symbol with the given id.
     pub fn symbol(&self, id: SymbolId) -> Symbol {
-        self.symbols[id.index()]
+        self.symbols[id]
     }
 
     /// The reference with the given id.
     pub fn reference(&self, id: ReferenceId) -> Reference {
-        self.references[id.index()]
+        self.references[id]
     }
 
     /// The declaration with the given id.
     pub fn declaration(&self, id: DeclarationId) -> Declaration {
-        self.declarations[id.index()]
+        self.declarations[id]
     }
 
     /// The scope with the given id.
@@ -169,20 +174,20 @@ impl<'a> Semantic<'a> {
     /// binding or member declaration site. Source-module and anonymous default
     /// export symbols are queried through the TypeScript export APIs.
     pub fn symbol_of(&self, node: NodeId) -> Option<SymbolId> {
-        self.node_semantic[node.index()].symbol()
+        self.node_semantic[node].symbol()
     }
 
     /// The reference recorded at `node`, or `None` when the node is
     /// not a reference site.
     pub fn reference_of(&self, node: NodeId) -> Option<ReferenceId> {
-        self.node_semantic[node.index()].reference()
+        self.node_semantic[node].reference()
     }
 
     /// The scope created by the given node, or `None` if the node is not a
     /// scope-creating site. If a node creates multiple scopes, returns the
     /// last one created (for example, the program's source-type wrapper).
     pub fn scope_of(&self, node: NodeId) -> Option<ScopeId> {
-        self.node_semantic[node.index()].scope()
+        self.node_semantic[node].scope()
     }
 
     /// The TypeScript source module's symbol, or `None` outside a TypeScript module.
@@ -243,7 +248,7 @@ impl<'a> Semantic<'a> {
             .get(&id)
             .map_or(&[][..], |declarations| declarations.as_slice());
         DeclarationIdIterator {
-            first: Some(self.symbols[id.index()].declaration),
+            first: Some(self.symbols[id].declaration),
             additional: additional.iter().copied(),
         }
     }
@@ -274,7 +279,7 @@ impl<'a> Semantic<'a> {
     /// An uncertain TypeScript reference is included under every candidate,
     /// even when [`Reference::symbol`] names a different, nearer candidate.
     pub fn uses(&self, id: SymbolId) -> &[ReferenceId] {
-        let range = self.use_ranges[id.index()];
+        let range = self.use_ranges[id];
         let start = range.start as usize;
         &self.use_ids[start..start + range.len as usize]
     }
@@ -405,14 +410,14 @@ impl<'a> Semantic<'a> {
     /// //               the function scope
     /// ```
     pub fn binding(&self, scope_id: ScopeId, name: &[u8]) -> Option<SymbolId> {
-        self.scope_maps[scope_id.index()]
+        self.scope_maps[scope_id]
             .get(name)
             .copied()
             .or_else(|| {
-                self.hoisting_variables[scope_id.index()]
+                self.hoisting_variables[scope_id]
                     .as_deref()
                     .and_then(|bindings| bindings.get(name).copied())
-                    .map(|declaration| self.declarations[declaration.index()].symbol)
+                    .map(|declaration| self.declarations[declaration].symbol)
             })
             .or_else(|| {
                 (scope_id == ScopeId::MODULE)
@@ -429,10 +434,9 @@ impl<'a> Semantic<'a> {
     /// source-file exports are included when no separate local owns their name.
     pub fn bindings(&self, scope_id: ScopeId) -> BindingIterator<'_> {
         BindingIterator {
-            inner: self.scope_maps[scope_id.index()].values(),
+            inner: self.scope_maps[scope_id].values(),
             source: if scope_id == ScopeId::MODULE {
-                self.ts_members
-                    .source_bindings(&self.scope_maps[scope_id.index()])
+                self.ts_members.source_bindings(&self.scope_maps[scope_id])
             } else {
                 None
             },
@@ -574,7 +578,7 @@ impl ExactSizeIterator for DeclarationIdIterator<'_> {
 impl std::iter::FusedIterator for DeclarationIdIterator<'_> {}
 
 pub struct ScopeIterator<'a> {
-    list: &'a [scope::Scope],
+    list: &'a Scopes,
     index: u32,
 }
 
@@ -584,7 +588,7 @@ impl Iterator for ScopeIterator<'_> {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let index = self.index as usize;
-            let scope = *self.list.get(index)?;
+            let scope = *self.list.raw.get(index)?;
             self.index += 1;
             if scope.active {
                 return Some(ScopeEntry {
@@ -613,7 +617,7 @@ impl Iterator for BindingIterator<'_> {
 }
 
 pub struct SymbolIterator<'a> {
-    symbols: &'a [Symbol],
+    symbols: &'a Symbols,
     index: u32,
 }
 
@@ -622,7 +626,7 @@ impl Iterator for SymbolIterator<'_> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let index = self.index as usize;
-        let symbol = *self.symbols.get(index)?;
+        let symbol = *self.symbols.raw.get(index)?;
         self.index += 1;
         Some(SymbolEntry {
             id: SymbolId::from_usize(index),
@@ -632,13 +636,13 @@ impl Iterator for SymbolIterator<'_> {
 }
 
 pub struct ReferenceIterator<'a> {
-    references: &'a [Reference],
-    node_semantic: &'a [NodeSemanticId],
+    references: &'a IndexSlice<ReferenceId, [Reference]>,
+    node_semantic: &'a IndexSlice<NodeId, [NodeSemanticId]>,
     index: u32,
 }
 
 pub struct DeclarationIterator<'a> {
-    declarations: &'a [Declaration],
+    declarations: &'a Declarations,
     index: u32,
 }
 
@@ -648,13 +652,10 @@ impl Iterator for ReferenceIterator<'_> {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let index = self.index as usize;
-            let reference = *self.references.get(index)?;
+            let reference = *self.references.raw.get(index)?;
             self.index += 1;
             let id = ReferenceId::from_usize(index);
-            if self.node_semantic[reference.node.index()]
-                .reference()
-                .is_some()
-            {
+            if self.node_semantic[reference.node].reference().is_some() {
                 return Some(ReferenceEntry { id, reference });
             }
         }
@@ -666,7 +667,7 @@ impl Iterator for DeclarationIterator<'_> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let index = self.index as usize;
-        let declaration = *self.declarations.get(index)?;
+        let declaration = *self.declarations.raw.get(index)?;
         self.index += 1;
         Some(DeclarationEntry {
             id: DeclarationId::from_usize(index),

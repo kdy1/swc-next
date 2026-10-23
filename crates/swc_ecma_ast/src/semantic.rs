@@ -1,14 +1,14 @@
 use std::num::NonZeroU32;
 
-use oxc_index::Idx;
+use swc_next_allocator::Idx;
 
 use crate::SourceType;
 
-oxc_index::define_nonmax_u32_index_type! {
+swc_next_allocator::define_nonmax_u32_index_type! {
     pub struct SymbolId;
 }
 
-oxc_index::define_nonmax_u32_index_type! {
+swc_next_allocator::define_nonmax_u32_index_type! {
     /// Identifier for a semantic reference.
     pub struct ReferenceId;
 }

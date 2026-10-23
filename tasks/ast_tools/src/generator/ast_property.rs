@@ -31,7 +31,7 @@ pub fn ast_property(schema: &Schema) -> RawOutput {
     let output = quote! {
             #![allow(unused, clippy::useless_conversion, clippy::identity_op, clippy::erasing_op, clippy::let_and_return)]
             use crate::*;
-            use oxc_index::Idx;
+            use swc_next_allocator::Idx;
 
             #impls
     };
@@ -254,7 +254,7 @@ fn generate_extra_data_property_accessors(
                 #offset_expr
                 unsafe {
                     ExtraDataValue::from_extra_data(
-                        ast.extra_data.as_slice().get_unchecked(offset.index()),
+                        ast.extra_data.get_unchecked(offset),
                     )
                 }
             }
@@ -295,7 +295,7 @@ fn generate_extra_data_setter(
             pub fn #setter_name<'a>(self, ast: &mut crate::Ast<'a>, #field_name: #field_ty) {
                 #extra_offset
                 unsafe {
-                    *ast.extra_data.as_mut_slice().get_unchecked_mut(offset.index()) =
+                    *ast.extra_data.get_unchecked_mut(offset) =
                         #field_name.into_extra_data();
                 };
             }
@@ -308,13 +308,13 @@ fn generate_extra_data_setter(
             let field_value = #field_name.into_extra_data();
             #extra_offset
             let previous = unsafe {
-                *ast.extra_data.as_slice().get_unchecked(offset.index())
+                *ast.extra_data.get_unchecked(offset)
             };
             if previous.raw() == field_value.raw() {
                 return;
             }
             unsafe {
-                *ast.extra_data.as_mut_slice().get_unchecked_mut(offset.index()) = field_value;
+                *ast.extra_data.get_unchecked_mut(offset) = field_value;
             };
             #invalidations
         }

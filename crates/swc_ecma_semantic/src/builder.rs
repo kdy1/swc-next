@@ -7,9 +7,9 @@ mod ts;
 
 use std::{borrow::Cow, collections::hash_map::Entry};
 
-use oxc_index::Idx;
 use rustc_hash::FxHashMap;
 use swc_next_allocator::Allocator;
+use swc_next_allocator::Idx;
 use swc_next_ecma_ast::{
     ArrayPattern, ArrowFunctionExpression, AssignmentExpression, AssignmentOperator,
     AssignmentPattern, Ast, BinaryOperator, BindingIdentifier, BindingProperty, BindingRestElement,
@@ -325,7 +325,7 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
     #[inline]
     // Mutable view used while collecting strict-mode flags.
     fn current_scope_mut(&mut self) -> &mut Scope {
-        &mut self.scope.list[self.current_scope.index()]
+        &mut self.scope.list[self.current_scope]
     }
 
     /// Whether the current scope is in strict mode.
@@ -998,7 +998,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
                 node.node_id(),
                 self.inherit_strict_flag(),
             );
-            self.scope.list[function.index()].function_body = Some(self.current_scope);
+            self.scope.list[function].function_body = Some(self.current_scope);
         }
         self.enter_node(node.node_id());
         node.visit_children_with(self);

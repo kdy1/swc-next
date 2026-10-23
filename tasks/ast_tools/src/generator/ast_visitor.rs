@@ -432,7 +432,7 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
     let output = quote! {
             #![allow(unused, clippy::useless_conversion, clippy::single_match)]
             use crate::*;
-            use oxc_index::Idx;
+            use swc_next_allocator::Idx;
         use crate::visit::{TraverseCtx, TraverseMutCtx, traverse_mut_slot};
 
             pub trait Visit<'a> {
