@@ -5,8 +5,6 @@ mod allocator_api;
 pub mod boxed;
 pub mod hash_map;
 pub mod hash_set;
-pub mod multi_index_vec;
-pub mod raw_vec;
 pub mod vec;
 pub mod wtf8;
 

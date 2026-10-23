@@ -1,0 +1,431 @@
+//! An arena-backed vector with type-safe indices from [`oxc_index`].
+
+use std::{
+    fmt,
+    marker::PhantomData,
+    ops::{Deref, DerefMut},
+    slice,
+};
+
+use oxc_index::{Idx, IndexSlice};
+
+use crate::{Allocator, CloneIn, vec::Vec};
+
+/// A growable arena-backed vector indexed by `I`.
+///
+/// Like [`oxc_index::IndexVec`], this dereferences to [`IndexSlice`] and
+/// [`push`](Self::push) returns the inserted element's index. Storage comes from
+/// [`Allocator`] and is reclaimed with the arena. Elements must not require
+/// [`Drop`], as enforced by the underlying arena [`Vec`].
+///
+/// Operations that grow the vector panic before its length exceeds `I::MAX + 1`.
+/// Removing or reordering elements can invalidate previously returned indices.
+///
+/// ```
+/// use swc_next_allocator::{Allocator, vec::ArenaIndexVec};
+///
+/// oxc_index::define_index_type! {
+///     struct NodeId = u32;
+///     MAX_INDEX = u32::MAX as usize;
+/// }
+///
+/// let allocator = Allocator::new();
+/// let mut nodes = ArenaIndexVec::<NodeId, _>::new_in(&allocator);
+/// let id = nodes.push(42);
+/// assert_eq!(nodes[id], 42);
+/// assert_eq!(nodes.iter_enumerated().next(), Some((id, &42)));
+/// ```
+#[repr(transparent)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ArenaIndexVec<'alloc, I: Idx, T> {
+    raw: Vec<'alloc, T>,
+    marker: PhantomData<fn(&I)>,
+}
+
+impl<'alloc, I: Idx, T> ArenaIndexVec<'alloc, I, T> {
+    /// Creates an empty vector without allocating.
+    #[inline]
+    pub fn new_in(allocator: &'alloc Allocator) -> Self {
+        Self {
+            raw: Vec::new_in(allocator),
+            marker: PhantomData,
+        }
+    }
+
+    /// Creates an empty vector with space for at least `capacity` elements.
+    ///
+    /// Panics if the requested capacity exceeds the index type's range.
+    #[inline]
+    pub fn with_capacity_in(capacity: usize, allocator: &'alloc Allocator) -> Self {
+        Self::check_len(capacity);
+        Self {
+            raw: Vec::with_capacity_in(capacity, allocator),
+            marker: PhantomData,
+        }
+    }
+
+    /// Collects values into a vector allocated in `allocator`.
+    #[inline]
+    pub fn from_iter_in(iter: impl IntoIterator<Item = T>, allocator: &'alloc Allocator) -> Self {
+        let mut result = Self::new_in(allocator);
+        result.extend(iter);
+        result
+    }
+
+    /// Wraps an arena vector without allocating or copying its elements.
+    ///
+    /// Panics if any element's index cannot be represented by `I`.
+    #[inline]
+    pub fn from_vec(raw: Vec<'alloc, T>) -> Self {
+        Self::check_len(raw.len());
+        Self {
+            raw,
+            marker: PhantomData,
+        }
+    }
+
+    /// Returns the underlying arena vector without allocating or copying.
+    #[inline]
+    pub fn into_vec(self) -> Vec<'alloc, T> {
+        self.raw
+    }
+
+    #[inline]
+    fn check_len(len: usize) {
+        assert!(
+            len == 0 || len - 1 <= I::MAX,
+            "length exceeds index type range"
+        );
+    }
+
+    /// Returns the next index that [`push`](Self::push) will assign.
+    ///
+    /// Panics when no more indices are representable by `I`.
+    #[inline]
+    pub fn next_idx(&self) -> I {
+        assert!(self.len() <= I::MAX, "length exceeds index type range");
+        I::from_usize(self.len())
+    }
+
+    /// Appends a value and returns its index.
+    ///
+    /// Panics before modifying the vector if its next index exceeds `I::MAX`.
+    #[inline]
+    pub fn push(&mut self, value: T) -> I {
+        let index = self.next_idx();
+        self.raw.push(value);
+        index
+    }
+
+    /// Removes and returns the last value, if any.
+    #[inline]
+    pub fn pop(&mut self) -> Option<T> {
+        self.raw.pop()
+    }
+
+    /// Returns the number of elements that fit in the current allocation.
+    ///
+    /// This can exceed the index type's range due to allocation rounding.
+    #[inline]
+    pub fn capacity(&self) -> usize {
+        self.raw.capacity()
+    }
+
+    /// Reserves space for at least `additional` more elements.
+    ///
+    /// Panics if the resulting length would exceed the index type's range.
+    #[inline]
+    pub fn reserve(&mut self, additional: usize) {
+        Self::check_len(
+            self.len()
+                .checked_add(additional)
+                .expect("capacity overflow"),
+        );
+        self.raw.reserve(additional);
+    }
+
+    /// Keeps only the first `len` elements, leaving capacity unchanged.
+    #[inline]
+    pub fn truncate(&mut self, len: usize) {
+        self.raw.truncate(len);
+    }
+
+    /// Removes all elements, leaving capacity unchanged.
+    #[inline]
+    pub fn clear(&mut self) {
+        self.raw.clear();
+    }
+
+    /// Resizes the vector, cloning `value` to fill new elements.
+    #[inline]
+    pub fn resize(&mut self, new_len: usize, value: T)
+    where
+        T: Clone,
+    {
+        Self::check_len(new_len);
+        self.raw.resize(new_len, value);
+    }
+
+    /// Moves all elements from `other` to the end of this vector.
+    #[inline]
+    pub fn append(&mut self, other: &mut Self) {
+        Self::check_len(
+            self.len()
+                .checked_add(other.len())
+                .expect("capacity overflow"),
+        );
+        self.raw.append(&mut other.raw);
+    }
+
+    /// Removes and returns an element, shifting later elements to the left.
+    #[inline]
+    pub fn remove(&mut self, index: I) -> T {
+        self.raw.remove(index.index())
+    }
+
+    /// Removes and returns an element, replacing it with the last element.
+    #[inline]
+    pub fn swap_remove(&mut self, index: I) -> T {
+        self.raw.swap_remove(index.index())
+    }
+
+    /// Returns a slice with type-safe indices.
+    #[inline]
+    pub fn as_slice(&self) -> &IndexSlice<I, [T]> {
+        IndexSlice::new(self.raw.as_slice())
+    }
+
+    /// Returns a mutable slice with type-safe indices.
+    #[inline]
+    pub fn as_mut_slice(&mut self) -> &mut IndexSlice<I, [T]> {
+        IndexSlice::new_mut(self.raw.as_mut_slice())
+    }
+
+    /// Returns the elements as a standard slice.
+    #[inline]
+    pub fn as_raw_slice(&self) -> &[T] {
+        self.raw.as_slice()
+    }
+
+    /// Returns the elements as a mutable standard slice.
+    #[inline]
+    pub fn as_raw_slice_mut(&mut self) -> &mut [T] {
+        self.raw.as_mut_slice()
+    }
+
+    /// Consumes the vector and returns a slice valid for the arena's lifetime.
+    #[inline]
+    pub fn into_bump_slice(self) -> &'alloc IndexSlice<I, [T]> {
+        IndexSlice::new(self.raw.into_bump_slice())
+    }
+
+    /// Consumes the vector and returns a mutable slice for the arena's lifetime.
+    #[inline]
+    pub fn into_bump_slice_mut(self) -> &'alloc mut IndexSlice<I, [T]> {
+        IndexSlice::new_mut(self.raw.into_bump_slice_mut())
+    }
+}
+
+impl<I: Idx, T> Deref for ArenaIndexVec<'_, I, T> {
+    type Target = IndexSlice<I, [T]>;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        self.as_slice()
+    }
+}
+
+impl<I: Idx, T> DerefMut for ArenaIndexVec<'_, I, T> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.as_mut_slice()
+    }
+}
+
+impl<I: Idx, T: fmt::Debug> fmt::Debug for ArenaIndexVec<'_, I, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.raw.fmt(f)
+    }
+}
+
+impl<I: Idx, T> Extend<T> for ArenaIndexVec<'_, I, T> {
+    #[inline]
+    fn extend<J: IntoIterator<Item = T>>(&mut self, iter: J) {
+        let iter = iter.into_iter();
+        self.reserve(iter.size_hint().0);
+        for value in iter {
+            self.push(value);
+        }
+    }
+}
+
+impl<'alloc, I: Idx, T> IntoIterator for ArenaIndexVec<'alloc, I, T> {
+    type Item = T;
+    type IntoIter = crate::vec::IntoIter<'alloc, T>;
+
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        self.raw.into_iter()
+    }
+}
+
+impl<'a, I: Idx, T> IntoIterator for &'a ArenaIndexVec<'_, I, T> {
+    type Item = &'a T;
+    type IntoIter = slice::Iter<'a, T>;
+
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        self.raw.iter()
+    }
+}
+
+impl<'a, I: Idx, T> IntoIterator for &'a mut ArenaIndexVec<'_, I, T> {
+    type Item = &'a mut T;
+    type IntoIter = slice::IterMut<'a, T>;
+
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        self.raw.iter_mut()
+    }
+}
+
+impl<'alloc, I: Idx, T, C: 'alloc> CloneIn<'alloc> for ArenaIndexVec<'_, I, T>
+where
+    T: CloneIn<'alloc, Cloned = C>,
+{
+    type Cloned = ArenaIndexVec<'alloc, I, C>;
+
+    #[inline]
+    fn clone_in(&self, allocator: &'alloc Allocator) -> Self::Cloned {
+        ArenaIndexVec::from_vec(self.raw.clone_in(allocator))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    use super::*;
+
+    oxc_index::define_index_type! {
+        struct TestId = u32;
+        MAX_INDEX = u32::MAX as usize;
+    }
+
+    oxc_index::define_index_type! {
+        struct SmallId = u8;
+        MAX_INDEX = 3;
+        DISABLE_MAX_INDEX_CHECK = true;
+    }
+
+    #[test]
+    fn indexing_and_growth() {
+        let allocator = Allocator::new();
+        let mut data = ArenaIndexVec::<TestId, _>::with_capacity_in(1, &allocator);
+        for value in 0..100 {
+            let id = data.push(value);
+            assert_eq!(id.index(), value as usize);
+            assert_eq!(data[id], value);
+        }
+        assert_eq!(data.len(), 100);
+        assert!(data.capacity() >= data.len());
+
+        let id = TestId::from(1usize);
+        data[id] = 200;
+        assert_eq!(data.get(id), Some(&200));
+        assert_eq!(data[id..TestId::from(3usize)].raw, [200, 2]);
+        assert_eq!(data.iter_enumerated().nth(1), Some((id, &200)));
+        assert_eq!(data.indices().next_back(), Some(data.last_idx()));
+        assert!(data.get(data.next_idx()).is_none());
+    }
+
+    #[test]
+    fn mutation_and_iteration() {
+        let allocator = Allocator::new();
+        let mut data = ArenaIndexVec::<TestId, _>::from_iter_in([1, 2], &allocator);
+        data.extend([3, 4]);
+        for value in &mut data {
+            *value += 1;
+        }
+        assert_eq!(
+            (&data).into_iter().copied().collect::<std::vec::Vec<_>>(),
+            [2, 3, 4, 5]
+        );
+        assert_eq!(data.pop(), Some(5));
+        assert_eq!(data.swap_remove(TestId::from(0usize)), 2);
+        assert_eq!(data.remove(TestId::from(0usize)), 4);
+
+        data.resize(3, 9);
+        assert_eq!(data.as_raw_slice(), [3, 9, 9]);
+        data.truncate(1);
+        let mut other = ArenaIndexVec::from_iter_in([7, 8], &allocator);
+        data.append(&mut other);
+        assert!(other.is_empty());
+        assert_eq!(data.into_iter().collect::<std::vec::Vec<_>>(), [3, 7, 8]);
+    }
+
+    #[test]
+    fn arena_conversions() {
+        let allocator = Allocator::new();
+        let mut data = ArenaIndexVec::<TestId, _>::from_vec(Vec::from_iter_in([1, 2], &allocator));
+        let ptr = data.as_raw_slice().as_ptr();
+        data.as_raw_slice_mut()[0] = 3;
+        let raw = data.into_vec();
+        assert_eq!(raw.as_ptr(), ptr);
+        let slice = ArenaIndexVec::<TestId, _>::from_vec(raw).into_bump_slice_mut();
+        slice[TestId::from(1usize)] = 4;
+        assert_eq!(slice.raw, [3, 4]);
+
+        let data = ArenaIndexVec::<TestId, _>::from_iter_in([true, false], &allocator);
+        assert_eq!(data.clone().as_raw_slice(), [true, false]);
+        let other_allocator = Allocator::new();
+        let cloned = data.clone_in(&other_allocator);
+        drop(allocator);
+        assert_eq!(cloned.into_bump_slice().raw, [true, false]);
+    }
+
+    #[test]
+    fn index_limits() {
+        let allocator = Allocator::new();
+        let mut data = ArenaIndexVec::<SmallId, _>::from_iter_in([0, 1, 2, 3], &allocator);
+        assert_eq!(data[SmallId::from(3usize)], 3);
+        assert!(catch_unwind(AssertUnwindSafe(|| data.push(4))).is_err());
+        assert_eq!(data.as_raw_slice(), [0, 1, 2, 3]);
+        assert!(catch_unwind(AssertUnwindSafe(|| data.reserve(1))).is_err());
+        assert!(catch_unwind(AssertUnwindSafe(|| data.resize(5, 0))).is_err());
+
+        let mut other = ArenaIndexVec::from_iter_in([4], &allocator);
+        assert!(catch_unwind(AssertUnwindSafe(|| data.append(&mut other))).is_err());
+        assert_eq!(other.as_raw_slice(), [4]);
+        data.clear();
+        assert_eq!(data.push(5).index(), 0);
+
+        let mut zst = ArenaIndexVec::<SmallId, ()>::new_in(&allocator);
+        zst.extend([(); 4]);
+        assert!(catch_unwind(AssertUnwindSafe(|| zst.push(()))).is_err());
+        assert_eq!(zst.len(), 4);
+    }
+
+    #[test]
+    fn construction_limits() {
+        let allocator = Allocator::new();
+        assert!(
+            catch_unwind(AssertUnwindSafe(|| {
+                ArenaIndexVec::<SmallId, u8>::with_capacity_in(5, &allocator)
+            }))
+            .is_err()
+        );
+
+        let raw = Vec::from_iter_in([(); 5], &allocator);
+        assert!(
+            catch_unwind(AssertUnwindSafe(|| {
+                ArenaIndexVec::<SmallId, _>::from_vec(raw)
+            }))
+            .is_err()
+        );
+
+        let mut data = ArenaIndexVec::<TestId, ()>::new_in(&allocator);
+        data.push(());
+        assert!(catch_unwind(AssertUnwindSafe(|| data.reserve(usize::MAX))).is_err());
+    }
+}

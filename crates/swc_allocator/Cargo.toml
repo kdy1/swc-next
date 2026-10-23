@@ -12,7 +12,5 @@ version               = "0.3.2"
 allocator-api2 = { workspace = true }
 bumpalo        = { workspace = true, features = ["allocator-api2"] }
 hashbrown      = { workspace = true }
+oxc_index      = { workspace = true }
 rustc-hash     = { workspace = true }
-
-[dev-dependencies]
-oxc_index = { workspace = true }

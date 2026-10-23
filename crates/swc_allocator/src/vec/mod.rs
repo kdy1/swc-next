@@ -93,8 +93,15 @@
 //! [`IndexMut`]: https://doc.rust-lang.org/std/ops/trait.IndexMut.html
 //! [`vec!`]: ../../macro.vec.html
 
-use super::raw_vec::CollectionAllocErr;
-use super::raw_vec::RawVec;
+mod arena_index_vec;
+mod multi_index_vec;
+pub mod raw_vec;
+
+pub use crate::multi_index_vec;
+pub use arena_index_vec::ArenaIndexVec;
+
+use self::raw_vec::CollectionAllocErr;
+use self::raw_vec::RawVec;
 use crate::Allocator;
 use core::borrow::{Borrow, BorrowMut};
 use core::cmp::Ordering;

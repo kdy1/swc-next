@@ -36,7 +36,7 @@ pub use strings::{AstUtf8, AstWtf8};
 pub use syntax::*;
 pub use visit::{TraverseAction, TraverseCtx, TraverseMutCtx};
 
-use swc_next_allocator::multi_index_vec;
+use swc_next_allocator::vec::multi_index_vec;
 
 use crate::strings::StringPool;
 
