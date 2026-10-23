@@ -10,7 +10,7 @@ use std::{borrow::Cow, mem};
 use bitflags::bitflags;
 use indexmap::IndexMap;
 use rustc_hash::{FxBuildHasher, FxHashSet};
-use swc_next_allocator::{Allocator, vec::Vec as ArenaVec, wtf8::Wtf8Buf};
+use swc_next_allocator::{Allocator, vec::ArenaVec, wtf8::Wtf8Buf};
 use swc_next_ecma_ast::*;
 use swc_next_ecma_ast::{AstUtf8, AstWtf8};
 

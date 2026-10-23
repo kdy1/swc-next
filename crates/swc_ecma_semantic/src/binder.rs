@@ -6,7 +6,7 @@ use swc_next_allocator::{
     Allocator, IndexSlice,
     boxed::Box as ArenaBox,
     hash_map::HashMap as ArenaHashMap,
-    vec::{ArenaIndexVec, Vec as ArenaVec},
+    vec::{ArenaIndexVec, ArenaVec},
 };
 use swc_next_ecma_ast::{
     AssignmentExpression, AssignmentOperator, Ast, AstUtf8, AstWtf8, BindingIdentifier, Class,

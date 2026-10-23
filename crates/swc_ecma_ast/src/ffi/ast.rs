@@ -41,7 +41,7 @@ use swc_next_allocator::Allocator;
 #[cfg(target_endian = "little")]
 use {
     std::ptr::NonNull,
-    swc_next_allocator::vec::{ArenaIndexVec, Vec as ArenaVec},
+    swc_next_allocator::vec::{ArenaIndexVec, ArenaVec},
 };
 
 use crate::{

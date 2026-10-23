@@ -7,14 +7,14 @@ use std::{
     slice,
 };
 
-use crate::{Allocator, CloneIn, Idx, IndexSlice, vec::Vec};
+use crate::{Allocator, CloneIn, Idx, IndexSlice, vec::ArenaVec};
 
 /// A growable arena-backed vector indexed by `I`.
 ///
 /// Like [`oxc_index::IndexVec`], this dereferences to [`IndexSlice`] and
 /// [`push`](Self::push) returns the inserted element's index. Storage comes from
 /// [`Allocator`] and is reclaimed with the arena. Elements must not require
-/// [`Drop`], as enforced by the underlying arena [`Vec`].
+/// [`Drop`], as enforced by the underlying arena [`ArenaVec`].
 ///
 /// Operations that grow the vector panic before its length exceeds `I::MAX + 1`.
 /// Removing or reordering elements can invalidate previously returned indices.
@@ -36,7 +36,7 @@ use crate::{Allocator, CloneIn, Idx, IndexSlice, vec::Vec};
 #[repr(transparent)]
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ArenaIndexVec<'alloc, I: Idx, T> {
-    raw: Vec<'alloc, T>,
+    raw: ArenaVec<'alloc, T>,
     marker: PhantomData<fn(&I)>,
 }
 
@@ -45,7 +45,7 @@ impl<'alloc, I: Idx, T> ArenaIndexVec<'alloc, I, T> {
     #[inline]
     pub fn new_in(allocator: &'alloc Allocator) -> Self {
         Self {
-            raw: Vec::new_in(allocator),
+            raw: ArenaVec::new_in(allocator),
             marker: PhantomData,
         }
     }
@@ -57,7 +57,7 @@ impl<'alloc, I: Idx, T> ArenaIndexVec<'alloc, I, T> {
     pub fn with_capacity_in(capacity: usize, allocator: &'alloc Allocator) -> Self {
         Self::check_len(capacity);
         Self {
-            raw: Vec::with_capacity_in(capacity, allocator),
+            raw: ArenaVec::with_capacity_in(capacity, allocator),
             marker: PhantomData,
         }
     }
@@ -74,7 +74,7 @@ impl<'alloc, I: Idx, T> ArenaIndexVec<'alloc, I, T> {
     ///
     /// Panics if any element's index cannot be represented by `I`.
     #[inline]
-    pub fn from_vec(raw: Vec<'alloc, T>) -> Self {
+    pub fn from_vec(raw: ArenaVec<'alloc, T>) -> Self {
         Self::check_len(raw.len());
         Self {
             raw,
@@ -84,7 +84,7 @@ impl<'alloc, I: Idx, T> ArenaIndexVec<'alloc, I, T> {
 
     /// Returns the underlying arena vector without allocating or copying.
     #[inline]
-    pub fn into_vec(self) -> Vec<'alloc, T> {
+    pub fn into_vec(self) -> ArenaVec<'alloc, T> {
         self.raw
     }
 
@@ -414,7 +414,8 @@ mod tests {
     #[test]
     fn arena_conversions() {
         let allocator = Allocator::new();
-        let mut data = ArenaIndexVec::<TestId, _>::from_vec(Vec::from_iter_in([1, 2], &allocator));
+        let mut data =
+            ArenaIndexVec::<TestId, _>::from_vec(ArenaVec::from_iter_in([1, 2], &allocator));
         let ptr = data.as_raw_slice().as_ptr();
         data.as_raw_slice_mut()[0] = 3;
         let raw = data.into_vec();
@@ -492,7 +493,7 @@ mod tests {
             .is_err()
         );
 
-        let raw = Vec::from_iter_in([(); 5], &allocator);
+        let raw = ArenaVec::from_iter_in([(); 5], &allocator);
         assert!(
             catch_unwind(AssertUnwindSafe(|| {
                 ArenaIndexVec::<SmallId, _>::from_vec(raw)

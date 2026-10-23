@@ -1,6 +1,6 @@
 use bitflags::bitflags;
 
-use swc_next_allocator::{boxed::Box, vec::Vec};
+use swc_next_allocator::{boxed::Box, vec::ArenaVec};
 
 use crate::{span::Span, string::Str};
 
@@ -15,14 +15,14 @@ pub struct Pattern<'a> {
 #[derive(Debug)]
 pub struct Disjunction<'a> {
     pub span: Span,
-    pub body: Vec<'a, Alternative<'a>>,
+    pub body: ArenaVec<'a, Alternative<'a>>,
 }
 
 /// Single unit of `|` separated alternatives.
 #[derive(Debug)]
 pub struct Alternative<'a> {
     pub span: Span,
-    pub body: Vec<'a, Term<'a>>,
+    pub body: ArenaVec<'a, Term<'a>>,
 }
 
 /// Single unit of [`Alternative`], containing various kinds.
@@ -163,7 +163,7 @@ pub struct CharacterClass<'a> {
     /// - and matches each logic depends on `kind`
     pub strings: bool,
     pub kind: CharacterClassContentsKind,
-    pub body: Vec<'a, CharacterClassContents<'a>>,
+    pub body: ArenaVec<'a, CharacterClassContents<'a>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -203,7 +203,7 @@ pub struct ClassStringDisjunction<'a> {
     pub span: Span,
     /// `true` if body is empty or contains [`ClassString`] which `strings` is `true`.
     pub strings: bool,
-    pub body: Vec<'a, ClassString<'a>>,
+    pub body: ArenaVec<'a, ClassString<'a>>,
 }
 
 /// Single unit of [`ClassStringDisjunction`].
@@ -212,7 +212,7 @@ pub struct ClassString<'a> {
     pub span: Span,
     /// `true` if body is empty or contain 2 more characters.
     pub strings: bool,
-    pub body: Vec<'a, Character>,
+    pub body: ArenaVec<'a, Character>,
 }
 
 /// Named or unnamed capturing group.

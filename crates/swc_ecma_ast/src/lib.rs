@@ -24,7 +24,7 @@ use node_id::ExtraData;
 use swc_next_allocator::{
     Allocator,
     hash_map::HashMap as ArenaHashMap,
-    vec::{ArenaIndexVec, Vec as ArenaVec},
+    vec::{ArenaIndexVec, ArenaVec},
 };
 
 pub use ast::*;

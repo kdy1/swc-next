@@ -22,7 +22,7 @@
 use swc_next_allocator::{
     Idx, IndexSlice,
     hash_map::{HashMap as ArenaHashMap, Values},
-    vec::{ArenaIndexVec, Vec as ArenaVec},
+    vec::{ArenaIndexVec, ArenaVec},
 };
 use swc_next_ecma_ast::{Ast, AstWtf8, Diagnostic, NodeId, ScopeId, SymbolId, VisitWith};
 

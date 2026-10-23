@@ -1,4 +1,4 @@
-use swc_next_allocator::{Allocator, hash_map::HashMap as ArenaHashMap, vec::Vec as ArenaVec};
+use swc_next_allocator::{Allocator, hash_map::HashMap as ArenaHashMap, vec::ArenaVec};
 
 /// Tracks names used in one collision domain.
 ///

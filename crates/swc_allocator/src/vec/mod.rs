@@ -14,7 +14,7 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 
 //! A contiguous growable array type with heap-allocated contents, written
-//! [`Vec<'bump, T>`].
+//! [`ArenaVec<'bump, T>`].
 //!
 //! Vectors have `O(1)` indexing, amortized `O(1)` push (to the end) and
 //! `O(1)` pop (from the end).
@@ -25,38 +25,38 @@
 //!
 //! # Examples
 //!
-//! You can explicitly create a [`Vec<'bump, T>`] with [`new_in`]:
+//! You can explicitly create a [`ArenaVec<'bump, T>`] with [`new_in`]:
 //!
 //! ```ignore
-//! use bumpalo::{Bump, collections::Vec};
+//! use swc_next_allocator::{Allocator, vec::ArenaVec};
 //!
-//! let b = Bump::new();
-//! let v: Vec<i32> = Vec::new_in(&b);
+//! let b = Allocator::new();
+//! let v: ArenaVec<i32> = ArenaVec::new_in(&b);
 //! ```
 //!
 //! ... or by using the [`vec!`] macro:
 //!
 //! ```ignore
-//! use bumpalo::{Bump, collections::Vec};
+//! use swc_next_allocator::{Allocator, vec::ArenaVec};
 //!
-//! let b = Bump::new();
+//! let b = Allocator::new();
 //!
-//! let v: Vec<i32> = bumpalo::vec![in &b];
+//! let v: ArenaVec<i32> = swc_next_allocator::vec![in &b];
 //!
-//! let v = bumpalo::vec![in &b; 1, 2, 3, 4, 5];
+//! let v = swc_next_allocator::vec![in &b; 1, 2, 3, 4, 5];
 //!
-//! let v = bumpalo::vec![in &b; 0; 10]; // ten zeroes
+//! let v = swc_next_allocator::vec![in &b; 0; 10]; // ten zeroes
 //! ```
 //!
 //! You can [`push`] values onto the end of a vector (which will grow the vector
 //! as needed):
 //!
 //! ```ignore
-//! use bumpalo::{Bump, collections::Vec};
+//! use swc_next_allocator::{Allocator, vec::ArenaVec};
 //!
-//! let b = Bump::new();
+//! let b = Allocator::new();
 //!
-//! let mut v = bumpalo::vec![in &b; 1, 2];
+//! let mut v = swc_next_allocator::vec![in &b; 1, 2];
 //!
 //! v.push(3);
 //! ```
@@ -64,11 +64,11 @@
 //! Popping values works in much the same way:
 //!
 //! ```ignore
-//! use bumpalo::{Bump, collections::Vec};
+//! use swc_next_allocator::{Allocator, vec::ArenaVec};
 //!
-//! let b = Bump::new();
+//! let b = Allocator::new();
 //!
-//! let mut v = bumpalo::vec![in &b; 1, 2];
+//! let mut v = swc_next_allocator::vec![in &b; 1, 2];
 //!
 //! assert_eq!(v.pop(), Some(2));
 //! ```
@@ -76,19 +76,19 @@
 //! Vectors also support indexing (through the [`Index`] and [`IndexMut`] traits):
 //!
 //! ```ignore
-//! use bumpalo::{Bump, collections::Vec};
+//! use swc_next_allocator::{Allocator, vec::ArenaVec};
 //!
-//! let b = Bump::new();
+//! let b = Allocator::new();
 //!
-//! let mut v = bumpalo::vec![in &b; 1, 2, 3];
+//! let mut v = swc_next_allocator::vec![in &b; 1, 2, 3];
 //! assert_eq!(v[2], 3);
 //! v[1] += 5;
 //! assert_eq!(v, [1, 7, 3]);
 //! ```
 //!
-//! [`Vec<'bump, T>`]: struct.Vec.html
-//! [`new_in`]: struct.Vec.html#method.new_in
-//! [`push`]: struct.Vec.html#method.push
+//! [`ArenaVec<'bump, T>`]: struct.ArenaVec.html
+//! [`new_in`]: struct.ArenaVec.html#method.new_in
+//! [`push`]: struct.ArenaVec.html#method.push
 //! [`Index`]: https://doc.rust-lang.org/std/ops/trait.Index.html
 //! [`IndexMut`]: https://doc.rust-lang.org/std/ops/trait.IndexMut.html
 //! [`vec!`]: ../../macro.vec.html
@@ -226,28 +226,28 @@ where
     d / (pointee_size as isize)
 }
 
-/// Creates a [`Vec`] containing the arguments.
+/// Creates a [`ArenaVec`] containing the arguments.
 ///
-/// `vec!` allows `Vec`s to be defined with the same syntax as array expressions.
+/// `vec!` allows `ArenaVec`s to be defined with the same syntax as array expressions.
 /// There are two forms of this macro:
 ///
-/// - Create a [`Vec`] containing a given list of elements:
+/// - Create a [`ArenaVec`] containing a given list of elements:
 ///
 /// ```ignore
-/// use bumpalo::Bump;
+/// use swc_next_allocator::Allocator;
 ///
-/// let b = Bump::new();
-/// let v = bumpalo::vec![in &b; 1, 2, 3];
+/// let b = Allocator::new();
+/// let v = swc_next_allocator::vec![in &b; 1, 2, 3];
 /// assert_eq!(v, [1, 2, 3]);
 /// ```
 ///
-/// - Create a [`Vec`] from a given element and size:
+/// - Create a [`ArenaVec`] from a given element and size:
 ///
 /// ```ignore
-/// use bumpalo::Bump;
+/// use swc_next_allocator::Allocator;
 ///
-/// let b = Bump::new();
-/// let v = bumpalo::vec![in &b; 1; 3];
+/// let b = Allocator::new();
+/// let v = swc_next_allocator::vec![in &b; 1; 3];
 /// assert_eq!(v, [1, 1, 1]);
 /// ```
 ///
@@ -257,17 +257,17 @@ where
 ///
 /// This will use `clone` to duplicate an expression, so one should be careful
 /// using this with types having a non-standard `Clone` implementation. For
-/// example, `bumpalo::vec![in &bump; Rc::new(1); 5]` will create a vector of five references
+/// example, `swc_next_allocator::vec![in &bump; Rc::new(1); 5]` will create a vector of five references
 /// to the same boxed integer value, not five references pointing to independently
 /// boxed integers.
 ///
-/// [`Vec`]: collections/vec/struct.Vec.html
+/// [`ArenaVec`]: collections/vec/struct.ArenaVec.html
 /// [`Clone`]: https://doc.rust-lang.org/std/clone/trait.Clone.html
 #[macro_export]
 macro_rules! vec {
     (in $bump:expr; $elem:expr; $n:expr) => {{
         let n = $n;
-        let mut v = $crate::vec::Vec::with_capacity_in(n, $bump);
+        let mut v = $crate::vec::ArenaVec::with_capacity_in(n, $bump);
         if n > 0 {
             let elem = $elem;
             for _ in 0..n - 1 {
@@ -277,25 +277,25 @@ macro_rules! vec {
         }
         v
     }};
-    (in $bump:expr) => { $crate::vec::Vec::new_in($bump) };
+    (in $bump:expr) => { $crate::vec::ArenaVec::new_in($bump) };
     (in $bump:expr; $($x:expr),*) => {{
-        let mut v = $crate::vec::Vec::new_in($bump);
+        let mut v = $crate::vec::ArenaVec::new_in($bump);
         $( v.push($x); )*
         v
     }};
     (in $bump:expr; $($x:expr,)*) => ($crate::vec![in $bump; $($x),*])
 }
 
-/// A contiguous growable array type, written `Vec<'bump, T>` but pronounced 'vector'.
+/// A contiguous growable array type, written `ArenaVec<'bump, T>` but pronounced 'vector'.
 ///
 /// # Examples
 ///
 /// ```ignore
-/// use bumpalo::{Bump, collections::Vec};
+/// use swc_next_allocator::{Allocator, vec::ArenaVec};
 ///
-/// let b = Bump::new();
+/// let b = Allocator::new();
 ///
-/// let mut vec = Vec::new_in(&b);
+/// let mut vec = ArenaVec::new_in(&b);
 /// vec.push(1);
 /// vec.push(2);
 ///
@@ -319,40 +319,40 @@ macro_rules! vec {
 /// The [`vec!`] macro is provided to make initialization more convenient:
 ///
 /// ```ignore
-/// use bumpalo::{Bump, collections::Vec};
+/// use swc_next_allocator::{Allocator, vec::ArenaVec};
 ///
-/// let b = Bump::new();
+/// let b = Allocator::new();
 ///
-/// let mut vec = bumpalo::vec![in &b; 1, 2, 3];
+/// let mut vec = swc_next_allocator::vec![in &b; 1, 2, 3];
 /// vec.push(4);
 /// assert_eq!(vec, [1, 2, 3, 4]);
 /// ```
 ///
-/// It can also initialize each element of a `Vec<'bump, T>` with a given value.
+/// It can also initialize each element of a `ArenaVec<'bump, T>` with a given value.
 /// This may be more efficient than performing allocation and initialization
 /// in separate steps, especially when initializing a vector of zeros:
 ///
 /// ```ignore
-/// use bumpalo::{Bump, collections::Vec};
+/// use swc_next_allocator::{Allocator, vec::ArenaVec};
 ///
-/// let b = Bump::new();
+/// let b = Allocator::new();
 ///
-/// let vec = bumpalo::vec![in &b; 0; 5];
+/// let vec = swc_next_allocator::vec![in &b; 0; 5];
 /// assert_eq!(vec, [0, 0, 0, 0, 0]);
 ///
 /// // The following is equivalent, but potentially slower:
-/// let mut vec1 = Vec::with_capacity_in(5, &b);
+/// let mut vec1 = ArenaVec::with_capacity_in(5, &b);
 /// vec1.resize(5, 0);
 /// ```
 ///
-/// Use a `Vec<'bump, T>` as an efficient stack:
+/// Use a `ArenaVec<'bump, T>` as an efficient stack:
 ///
 /// ```ignore
-/// use bumpalo::{Bump, collections::Vec};
+/// use swc_next_allocator::{Allocator, vec::ArenaVec};
 ///
-/// let b = Bump::new();
+/// let b = Allocator::new();
 ///
-/// let mut stack = Vec::new_in(&b);
+/// let mut stack = ArenaVec::new_in(&b);
 ///
 /// stack.push(1);
 /// stack.push(2);
@@ -366,27 +366,27 @@ macro_rules! vec {
 ///
 /// # Indexing
 ///
-/// The `Vec` type allows to access values by index, because it implements the
+/// The `ArenaVec` type allows to access values by index, because it implements the
 /// [`Index`] trait. An example will be more explicit:
 ///
 /// ```ignore
-/// use bumpalo::{Bump, collections::Vec};
+/// use swc_next_allocator::{Allocator, vec::ArenaVec};
 ///
-/// let b = Bump::new();
+/// let b = Allocator::new();
 ///
-/// let v = bumpalo::vec![in &b; 0, 2, 4, 6];
+/// let v = swc_next_allocator::vec![in &b; 0, 2, 4, 6];
 /// println!("{}", v[1]); // it will display '2'
 /// ```
 ///
-/// However be careful: if you try to access an index which isn't in the `Vec`,
+/// However be careful: if you try to access an index which isn't in the `ArenaVec`,
 /// your software will panic! You cannot do this:
 ///
 /// ```ignore
-/// use bumpalo::{Bump, collections::Vec};
+/// use swc_next_allocator::{Allocator, vec::ArenaVec};
 ///
-/// let b = Bump::new();
+/// let b = Allocator::new();
 ///
-/// let v = bumpalo::vec![in &b; 0, 2, 4, 6];
+/// let v = swc_next_allocator::vec![in &b; 0, 2, 4, 6];
 /// println!("{}", v[6]); // it will panic!
 /// ```
 ///
@@ -395,19 +395,19 @@ macro_rules! vec {
 ///
 /// # Slicing
 ///
-/// A `Vec` can be mutable. Slices, on the other hand, are read-only objects.
+/// A `ArenaVec` can be mutable. Slices, on the other hand, are read-only objects.
 /// To get a slice, use `&`. Example:
 ///
 /// ```ignore
-/// use bumpalo::{Bump, collections::Vec};
+/// use swc_next_allocator::{Allocator, vec::ArenaVec};
 ///
 /// fn read_slice(slice: &[usize]) {
 ///     // ...
 /// }
 ///
-/// let b = Bump::new();
+/// let b = Allocator::new();
 ///
-/// let v = bumpalo::vec![in &b; 0, 1];
+/// let v = swc_next_allocator::vec![in &b; 0, 1];
 /// read_slice(&v);
 ///
 /// // ... and that's all!
@@ -432,54 +432,54 @@ macro_rules! vec {
 /// with space for 10 more elements. Pushing 10 or fewer elements onto the
 /// vector will not change its capacity or cause reallocation to occur. However,
 /// if the vector's length is increased to 11, it will have to reallocate, which
-/// can be slow. For this reason, it is recommended to use [`Vec::with_capacity_in`]
+/// can be slow. For this reason, it is recommended to use [`ArenaVec::with_capacity_in`]
 /// whenever possible to specify how big the vector is expected to get.
 ///
 /// # Guarantees
 ///
-/// Due to its incredibly fundamental nature, `Vec` makes a lot of guarantees
+/// Due to its incredibly fundamental nature, `ArenaVec` makes a lot of guarantees
 /// about its design. This ensures that it's as low-overhead as possible in
 /// the general case, and can be correctly manipulated in primitive ways
-/// by unsafe code. Note that these guarantees refer to an unqualified `Vec<'bump, T>`.
+/// by unsafe code. Note that these guarantees refer to an unqualified `ArenaVec<'bump, T>`.
 /// If additional type parameters are added (e.g. to support custom allocators),
 /// overriding their defaults may change the behavior.
 ///
-/// Most fundamentally, `Vec` is and always will be a (pointer, capacity, length)
+/// Most fundamentally, `ArenaVec` is and always will be a (pointer, capacity, length)
 /// triplet. No more, no less. The order of these fields is completely
 /// unspecified, and you should use the appropriate methods to modify these.
 /// The pointer will never be null, so this type is null-pointer-optimized.
 ///
 /// However, the pointer may not actually point to allocated memory. In particular,
-/// if you construct a `Vec` with capacity 0 via [`Vec::new_in`], [`bumpalo::vec![in bump]`][`vec!`],
-/// [`Vec::with_capacity_in(0)`][`Vec::with_capacity_in`], or by calling [`shrink_to_fit`]
-/// on an empty Vec, it will not allocate memory. Similarly, if you store zero-sized
-/// types inside a `Vec`, it will not allocate space for them. *Note that in this case
-/// the `Vec` may not report a [`capacity`] of 0*. `Vec` will allocate if and only
-/// if <code>[`mem::size_of::<T>`]\() * capacity() > 0</code>. In general, `Vec`'s allocation
-/// details are very subtle &mdash; if you intend to allocate memory using a `Vec`
+/// if you construct a `ArenaVec` with capacity 0 via [`ArenaVec::new_in`], [`swc_next_allocator::vec![in bump]`][`vec!`],
+/// [`ArenaVec::with_capacity_in(0)`][`ArenaVec::with_capacity_in`], or by calling [`shrink_to_fit`]
+/// on an empty ArenaVec, it will not allocate memory. Similarly, if you store zero-sized
+/// types inside a `ArenaVec`, it will not allocate space for them. *Note that in this case
+/// the `ArenaVec` may not report a [`capacity`] of 0*. `ArenaVec` will allocate if and only
+/// if <code>[`mem::size_of::<T>`]\() * capacity() > 0</code>. In general, `ArenaVec`'s allocation
+/// details are very subtle &mdash; if you intend to allocate memory using a `ArenaVec`
 /// and use it for something else (either to pass to unsafe code, or to build your
 /// own memory-backed collection), be sure to deallocate this memory by using
-/// `from_raw_parts` to recover the `Vec` and then dropping it.
+/// `from_raw_parts` to recover the `ArenaVec` and then dropping it.
 ///
-/// If a `Vec` *has* allocated memory, then the memory it points to is
-/// in the [`Bump`] arena used to construct it, and its
+/// If a `ArenaVec` *has* allocated memory, then the memory it points to is
+/// in the [`Allocator`] arena used to construct it, and its
 /// pointer points to [`len`] initialized, contiguous elements in order (what
 /// you would see if you coerced it to a slice), followed by <code>[`capacity`] -
 /// [`len`]</code> logically uninitialized, contiguous elements.
 ///
-/// `Vec` will never perform a "small optimization" where elements are actually
+/// `ArenaVec` will never perform a "small optimization" where elements are actually
 /// stored on the stack for two reasons:
 ///
 /// * It would make it more difficult for unsafe code to correctly manipulate
-///   a `Vec`. The contents of a `Vec` wouldn't have a stable address if it were
-///   only moved, and it would be more difficult to determine if a `Vec` had
+///   a `ArenaVec`. The contents of a `ArenaVec` wouldn't have a stable address if it were
+///   only moved, and it would be more difficult to determine if a `ArenaVec` had
 ///   actually allocated memory.
 ///
 /// * It would penalize the general case, incurring an additional branch
 ///   on every access.
 ///
-/// `Vec` will never automatically shrink itself, even if completely empty. This
-/// ensures no unnecessary allocations or deallocations occur. Emptying a `Vec`
+/// `ArenaVec` will never automatically shrink itself, even if completely empty. This
+/// ensures no unnecessary allocations or deallocations occur. Emptying a `ArenaVec`
 /// and then filling it back up to the same [`len`] should incur no calls to
 /// the allocator. If you wish to free up unused memory, use
 /// [`shrink_to_fit`][`shrink_to_fit`].
@@ -488,61 +488,61 @@ macro_rules! vec {
 /// sufficient. [`push`] and [`insert`] *will* (re)allocate if
 /// <code>[`len`] == [`capacity`]</code>. That is, the reported capacity is completely
 /// accurate, and can be relied on. It can even be used to manually free the memory
-/// allocated by a `Vec` if desired. Bulk insertion methods *may* reallocate, even
+/// allocated by a `ArenaVec` if desired. Bulk insertion methods *may* reallocate, even
 /// when not necessary.
 ///
-/// `Vec` does not guarantee any particular growth strategy when reallocating
+/// `ArenaVec` does not guarantee any particular growth strategy when reallocating
 /// when full, nor when [`reserve`] is called. The current strategy is basic
 /// and it may prove desirable to use a non-constant growth factor. Whatever
 /// strategy is used will of course guarantee `O(1)` amortized [`push`].
 ///
-/// `bumpalo::vec![in bump; x; n]`, `bumpalo::vec![in bump; a, b, c, d]`, and
-/// [`Vec::with_capacity_in(n)`][`Vec::with_capacity_in`], will all produce a
-/// `Vec` with exactly the requested capacity. If <code>[`len`] == [`capacity`]</code>, (as
-/// is the case for the [`vec!`] macro), then a `Vec<'bump, T>` can be converted
+/// `swc_next_allocator::vec![in bump; x; n]`, `swc_next_allocator::vec![in bump; a, b, c, d]`, and
+/// [`ArenaVec::with_capacity_in(n)`][`ArenaVec::with_capacity_in`], will all produce a
+/// `ArenaVec` with exactly the requested capacity. If <code>[`len`] == [`capacity`]</code>, (as
+/// is the case for the [`vec!`] macro), then a `ArenaVec<'bump, T>` can be converted
 /// to and from a [`Box<[T]>`][owned slice] without reallocating or moving the
 /// elements.
 ///
-/// `Vec` will not specifically overwrite any data that is removed from it,
+/// `ArenaVec` will not specifically overwrite any data that is removed from it,
 /// but also won't specifically preserve it. Its uninitialized memory is
 /// scratch space that it may use however it wants. It will generally just do
 /// whatever is most efficient or otherwise easy to implement. Do not rely on
-/// removed data to be erased for security purposes. Even if you drop a `Vec`, its
-/// buffer may simply be reused by another `Vec`. Even if you zero a `Vec`'s memory
+/// removed data to be erased for security purposes. Even if you drop a `ArenaVec`, its
+/// buffer may simply be reused by another `ArenaVec`. Even if you zero a `ArenaVec`'s memory
 /// first, that may not actually happen because the optimizer does not consider
 /// this a side-effect that must be preserved. There is one case which we will
 /// not break, however: using `unsafe` code to write to the excess capacity,
 /// and then increasing the length to match, is always valid.
 ///
-/// `Vec` does not currently guarantee the order in which elements are dropped.
+/// `ArenaVec` does not currently guarantee the order in which elements are dropped.
 /// The order has changed in the past and may change again.
 ///
 /// [`vec!`]: ../../macro.vec.html
 /// [`Index`]: https://doc.rust-lang.org/std/ops/trait.Index.html
 /// [`String`]: ../string/struct.String.html
 /// [`&str`]: https://doc.rust-lang.org/std/primitive.str.html
-/// [`Vec::with_capacity_in`]: struct.Vec.html#method.with_capacity_in
-/// [`Vec::new_in`]: struct.Vec.html#method.new_in
-/// [`shrink_to_fit`]: struct.Vec.html#method.shrink_to_fit
-/// [`capacity`]: struct.Vec.html#method.capacity
+/// [`ArenaVec::with_capacity_in`]: struct.ArenaVec.html#method.with_capacity_in
+/// [`ArenaVec::new_in`]: struct.ArenaVec.html#method.new_in
+/// [`shrink_to_fit`]: struct.ArenaVec.html#method.shrink_to_fit
+/// [`capacity`]: struct.ArenaVec.html#method.capacity
 /// [`mem::size_of::<T>`]: https://doc.rust-lang.org/std/mem/fn.size_of.html
-/// [`len`]: struct.Vec.html#method.len
-/// [`push`]: struct.Vec.html#method.push
-/// [`insert`]: struct.Vec.html#method.insert
-/// [`reserve`]: struct.Vec.html#method.reserve
+/// [`len`]: struct.ArenaVec.html#method.len
+/// [`push`]: struct.ArenaVec.html#method.push
+/// [`insert`]: struct.ArenaVec.html#method.insert
+/// [`reserve`]: struct.ArenaVec.html#method.reserve
 /// [owned slice]: https://doc.rust-lang.org/std/boxed/struct.Box.html
 #[repr(transparent)]
-pub struct Vec<'bump, T: 'bump> {
+pub struct ArenaVec<'bump, T: 'bump> {
     buf: RawVec<'bump, T>,
 }
 
-impl<T> Vec<'_, T> {
+impl<T> ArenaVec<'_, T> {
     /// Const assertion that `T` is not `Drop`.
-    /// Must be referenced in all methods which create a `Vec`.
+    /// Must be referenced in all methods which create a `ArenaVec`.
     #[allow(clippy::assertions_on_constants)]
     const ASSERT_T_IS_NOT_DROP: () = assert!(
         !std::mem::needs_drop::<T>(),
-        "Cannot create a Vec<T> where T is a Drop type"
+        "Cannot create a ArenaVec<T> where T is a Drop type"
     );
 }
 
@@ -550,8 +550,8 @@ impl<T> Vec<'_, T> {
 // Inherent methods
 ////////////////////////////////////////////////////////////////////////////////
 
-impl<'bump, T: 'bump> Vec<'bump, T> {
-    /// Constructs a new, empty `Vec<'bump, T>`.
+impl<'bump, T: 'bump> ArenaVec<'bump, T> {
+    /// Constructs a new, empty `ArenaVec<'bump, T>`.
     ///
     /// The vector will not allocate until elements are pushed onto it.
     ///
@@ -559,20 +559,20 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     ///
     /// ```ignore
     /// # #![allow(unused_mut)]
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
-    /// let mut vec: Vec<i32> = Vec::new_in(&b);
+    /// let b = Allocator::new();
+    /// let mut vec: ArenaVec<i32> = ArenaVec::new_in(&b);
     /// ```
     #[inline]
-    pub fn new_in(bump: &'bump Allocator) -> Vec<'bump, T> {
+    pub fn new_in(bump: &'bump Allocator) -> ArenaVec<'bump, T> {
         const { Self::ASSERT_T_IS_NOT_DROP };
-        Vec {
+        ArenaVec {
             buf: RawVec::new_in(bump),
         }
     }
 
-    /// Constructs a new, empty `Vec<'bump, T>` with the specified capacity.
+    /// Constructs a new, empty `ArenaVec<'bump, T>` with the specified capacity.
     ///
     /// The vector will be able to hold exactly `capacity` elements without
     /// reallocating. If `capacity` is 0, the vector will not allocate.
@@ -587,11 +587,11 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let mut vec = Vec::with_capacity_in(10, &b);
+    /// let mut vec = ArenaVec::with_capacity_in(10, &b);
     ///
     /// // The vector contains no items, even though it has capacity for more
     /// assert_eq!(vec.len(), 0);
@@ -605,43 +605,43 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// vec.push(11);
     /// ```
     #[inline]
-    pub fn with_capacity_in(capacity: usize, bump: &'bump Allocator) -> Vec<'bump, T> {
+    pub fn with_capacity_in(capacity: usize, bump: &'bump Allocator) -> ArenaVec<'bump, T> {
         const { Self::ASSERT_T_IS_NOT_DROP };
-        Vec {
+        ArenaVec {
             buf: RawVec::with_capacity_in(capacity, bump),
         }
     }
 
-    /// Construct a new `Vec` from the given iterator's items.
+    /// Construct a new `ArenaVec` from the given iterator's items.
     ///
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     /// use std::iter;
     ///
-    /// let b = Bump::new();
-    /// let v = Vec::from_iter_in(iter::repeat(7).take(3), &b);
+    /// let b = Allocator::new();
+    /// let v = ArenaVec::from_iter_in(iter::repeat(7).take(3), &b);
     /// assert_eq!(v, [7, 7, 7]);
     /// ```
     pub fn from_iter_in<I: IntoIterator<Item = T>>(
         iter: I,
         bump: &'bump Allocator,
-    ) -> Vec<'bump, T> {
+    ) -> ArenaVec<'bump, T> {
         const { Self::ASSERT_T_IS_NOT_DROP };
-        let mut v = Vec::new_in(bump);
+        let mut v = ArenaVec::new_in(bump);
         v.extend(iter);
         v
     }
 
-    /// Creates a `Vec<'bump, T>` directly from the raw components of another vector.
+    /// Creates a `ArenaVec<'bump, T>` directly from the raw components of another vector.
     ///
     /// # Safety
     ///
     /// This is highly unsafe, due to the number of invariants that aren't
     /// checked:
     ///
-    /// * `ptr` needs to have been previously allocated via [`String`]/`Vec<'bump, T>`
+    /// * `ptr` needs to have been previously allocated via [`String`]/`ArenaVec<'bump, T>`
     ///   (at least, it's highly likely to be incorrect if it wasn't).
     /// * `ptr`'s `T` needs to have the same size and alignment as it was allocated with.
     /// * `length` needs to be less than or equal to `capacity`.
@@ -650,10 +650,10 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     ///
     /// Violating these may cause problems like corrupting the allocator's
     /// internal data structures. For example it is **not** safe
-    /// to build a `Vec<u8>` from a pointer to a C `char` array and a `size_t`.
+    /// to build a `ArenaVec<u8>` from a pointer to a C `char` array and a `size_t`.
     ///
     /// The ownership of `ptr` is effectively transferred to the
-    /// `Vec<'bump, T>` which may then deallocate, reallocate or change the
+    /// `ArenaVec<'bump, T>` which may then deallocate, reallocate or change the
     /// contents of memory pointed to by the pointer at will. Ensure
     /// that nothing else uses the pointer after calling this
     /// function.
@@ -663,14 +663,14 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
     /// use std::ptr;
     /// use std::mem;
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let mut v = bumpalo::vec![in &b; 1, 2, 3];
+    /// let mut v = swc_next_allocator::vec![in &b; 1, 2, 3];
     ///
     /// // Pull out the various important pieces of information about `v`
     /// let p = v.as_mut_ptr();
@@ -687,8 +687,8 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     ///         ptr::write(p.offset(i), 4 + i);
     ///     }
     ///
-    ///     // Put everything back together into a Vec
-    ///     let rebuilt = Vec::from_raw_parts_in(p, len, cap, &b);
+    ///     // Put everything back together into a ArenaVec
+    ///     let rebuilt = ArenaVec::from_raw_parts_in(p, len, cap, &b);
     ///     assert_eq!(rebuilt, [4, 5, 6]);
     /// }
     /// ```
@@ -697,9 +697,9 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
         length: usize,
         capacity: usize,
         bump: &'bump Allocator,
-    ) -> Vec<'bump, T> {
+    ) -> ArenaVec<'bump, T> {
         const { Self::ASSERT_T_IS_NOT_DROP };
-        Vec {
+        ArenaVec {
             buf: RawVec::from_raw_parts_in(ptr, length, capacity, bump),
         }
     }
@@ -720,15 +720,15 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
         }
     }
 
-    /// Returns a shared reference to the allocator backing this `Vec`.
+    /// Returns a shared reference to the allocator backing this `ArenaVec`.
     ///
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// // uses the same allocator as the provided `Vec`
-    /// fn add_strings<'bump>(vec: &mut Vec<'bump, &'bump str>) {
+    /// // uses the same allocator as the provided `ArenaVec`
+    /// fn add_strings<'bump>(vec: &mut ArenaVec<'bump, &'bump str>) {
     ///     for string in ["foo", "bar", "baz"] {
     ///         vec.push(vec.bump().alloc_str(string));
     ///     }
@@ -746,10 +746,10 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
-    /// let vec: Vec<i32> = Vec::with_capacity_in(10, &b);
+    /// let b = Allocator::new();
+    /// let vec: ArenaVec<i32> = ArenaVec::with_capacity_in(10, &b);
     /// assert_eq!(vec.capacity(), 10);
     /// ```
     #[inline]
@@ -773,7 +773,7 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     }
 
     /// Reserves capacity for at least `additional` more elements to be inserted
-    /// in the given `Vec<'bump, T>`. The collection may reserve more space to avoid
+    /// in the given `ArenaVec<'bump, T>`. The collection may reserve more space to avoid
     /// frequent reallocations. After calling `reserve`, capacity will be
     /// greater than or equal to `self.len() + additional`. Does nothing if
     /// capacity is already sufficient.
@@ -785,10 +785,10 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
-    /// let mut vec = bumpalo::vec![in &b; 1];
+    /// let b = Allocator::new();
+    /// let mut vec = swc_next_allocator::vec![in &b; 1];
     /// vec.reserve(10);
     /// assert!(vec.capacity() >= 11);
     /// ```
@@ -797,7 +797,7 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     }
 
     /// Reserves the minimum capacity for exactly `additional` more elements to
-    /// be inserted in the given `Vec<'bump, T>`. After calling `reserve_exact`,
+    /// be inserted in the given `ArenaVec<'bump, T>`. After calling `reserve_exact`,
     /// capacity will be greater than or equal to `self.len() + additional`.
     /// Does nothing if the capacity is already sufficient.
     ///
@@ -812,10 +812,10 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
-    /// let mut vec = bumpalo::vec![in &b; 1];
+    /// let b = Allocator::new();
+    /// let mut vec = swc_next_allocator::vec![in &b; 1];
     /// vec.reserve_exact(10);
     /// assert!(vec.capacity() >= 11);
     /// ```
@@ -824,7 +824,7 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     }
 
     /// Attempts to reserve capacity for at least `additional` more elements to be inserted
-    /// in the given `Vec<'bump, T>`. The collection may reserve more space to avoid
+    /// in the given `ArenaVec<'bump, T>`. The collection may reserve more space to avoid
     /// frequent reallocations. After calling `try_reserve`, capacity will be
     /// greater than or equal to `self.len() + additional`. Does nothing if
     /// capacity is already sufficient.
@@ -836,10 +836,10 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
-    /// let mut vec = bumpalo::vec![in &b; 1];
+    /// let b = Allocator::new();
+    /// let mut vec = swc_next_allocator::vec![in &b; 1];
     /// vec.try_reserve(10).unwrap();
     /// assert!(vec.capacity() >= 11);
     /// ```
@@ -848,7 +848,7 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     }
 
     /// Attempts to reserve the minimum capacity for exactly `additional` more elements to
-    /// be inserted in the given `Vec<'bump, T>`. After calling `try_reserve_exact`,
+    /// be inserted in the given `ArenaVec<'bump, T>`. After calling `try_reserve_exact`,
     /// capacity will be greater than or equal to `self.len() + additional`.
     /// Does nothing if the capacity is already sufficient.
     ///
@@ -863,10 +863,10 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
-    /// let mut vec = bumpalo::vec![in &b; 1];
+    /// let b = Allocator::new();
+    /// let mut vec = swc_next_allocator::vec![in &b; 1];
     /// vec.try_reserve_exact(10).unwrap();
     /// assert!(vec.capacity() >= 11);
     /// ```
@@ -882,11 +882,11 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let mut vec = Vec::with_capacity_in(10, &b);
+    /// let mut vec = ArenaVec::with_capacity_in(10, &b);
     /// vec.extend([1, 2, 3].iter().cloned());
     /// assert_eq!(vec.capacity(), 10);
     /// vec.shrink_to_fit();
@@ -903,10 +903,10 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
-    /// let v = bumpalo::vec![in &b; 1, 2, 3];
+    /// let b = Allocator::new();
+    /// let v = swc_next_allocator::vec![in &b; 1, 2, 3];
     ///
     /// let slice = v.into_bump_slice();
     /// assert_eq!(slice, [1, 2, 3]);
@@ -924,10 +924,10 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
-    /// let v = bumpalo::vec![in &b; 1, 2, 3];
+    /// let b = Allocator::new();
+    /// let v = swc_next_allocator::vec![in &b; 1, 2, 3];
     ///
     /// let mut slice = v.into_bump_slice_mut();
     ///
@@ -959,11 +959,11 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// Truncating a five element vector to two elements:
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let mut vec = bumpalo::vec![in &b; 1, 2, 3, 4, 5];
+    /// let mut vec = swc_next_allocator::vec![in &b; 1, 2, 3, 4, 5];
     /// vec.truncate(2);
     /// assert_eq!(vec, [1, 2]);
     /// ```
@@ -972,11 +972,11 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// length:
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let mut vec = bumpalo::vec![in &b; 1, 2, 3];
+    /// let mut vec = swc_next_allocator::vec![in &b; 1, 2, 3];
     /// vec.truncate(8);
     /// assert_eq!(vec, [1, 2, 3]);
     /// ```
@@ -985,11 +985,11 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// method.
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let mut vec = bumpalo::vec![in &b; 1, 2, 3];
+    /// let mut vec = swc_next_allocator::vec![in &b; 1, 2, 3];
     /// vec.truncate(0);
     /// assert_eq!(vec, []);
     /// ```
@@ -1022,12 +1022,12 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     /// use std::io::{self, Write};
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let buffer = bumpalo::vec![in &b; 1, 2, 3, 5, 8];
+    /// let buffer = swc_next_allocator::vec![in &b; 1, 2, 3, 5, 8];
     /// io::sink().write(buffer.as_slice()).unwrap();
     /// ```
     #[inline]
@@ -1042,11 +1042,11 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     /// use std::io::{self, Read};
     ///
-    /// let b = Bump::new();
-    /// let mut buffer = bumpalo::vec![in &b; 0; 3];
+    /// let b = Allocator::new();
+    /// let mut buffer = swc_next_allocator::vec![in &b; 0; 3];
     /// io::repeat(0b101).read_exact(buffer.as_mut_slice()).unwrap();
     /// ```
     #[inline]
@@ -1069,11 +1069,11 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let bump = Bump::new();
+    /// let bump = Allocator::new();
     ///
-    /// let x = bumpalo::vec![in &bump; 1, 2, 4];
+    /// let x = swc_next_allocator::vec![in &bump; 1, 2, 4];
     /// let x_ptr = x.as_ptr();
     ///
     /// unsafe {
@@ -1083,7 +1083,7 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// }
     /// ```
     ///
-    /// [`as_mut_ptr`]: Vec::as_mut_ptr
+    /// [`as_mut_ptr`]: ArenaVec::as_mut_ptr
     #[inline]
     pub fn as_ptr(&self) -> *const T {
         // We shadow the slice method of the same name to avoid going through
@@ -1108,13 +1108,13 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let bump = Bump::new();
+    /// let bump = Allocator::new();
     ///
     /// // Allocate vector big enough for 4 elements.
     /// let size = 4;
-    /// let mut x: Vec<i32> = Vec::with_capacity_in(size, &bump);
+    /// let mut x: ArenaVec<i32> = ArenaVec::with_capacity_in(size, &bump);
     /// let x_ptr = x.as_mut_ptr();
     ///
     /// // Initialize elements via raw pointer writes, then set length.
@@ -1151,18 +1151,18 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// - `new_len` must be less than or equal to [`capacity()`].
     /// - The elements at `old_len..new_len` must be initialized.
     ///
-    /// [`capacity()`]: struct.Vec.html#method.capacity
+    /// [`capacity()`]: struct.ArenaVec.html#method.capacity
     ///
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
     /// use std::ptr;
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let mut vec = bumpalo::vec![in &b; 'r', 'u', 's', 't'];
+    /// let mut vec = swc_next_allocator::vec![in &b; 'r', 'u', 's', 't'];
     ///
     /// unsafe {
     ///     ptr::drop_in_place(&mut vec[3]);
@@ -1175,14 +1175,14 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// owned by the inner vectors were not freed prior to the `set_len` call:
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let mut vec = bumpalo::vec![in &b;
-    ///                             bumpalo::vec![in &b; 1, 0, 0],
-    ///                             bumpalo::vec![in &b; 0, 1, 0],
-    ///                             bumpalo::vec![in &b; 0, 0, 1]];
+    /// let mut vec = swc_next_allocator::vec![in &b;
+    ///                             swc_next_allocator::vec![in &b; 1, 0, 0],
+    ///                             swc_next_allocator::vec![in &b; 0, 1, 0],
+    ///                             swc_next_allocator::vec![in &b; 0, 0, 1]];
     /// unsafe {
     ///     vec.set_len(0);
     /// }
@@ -1193,12 +1193,12 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     ///
     // TODO: rely upon `spare_capacity_mut`
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
     /// let len = 4;
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let mut vec: Vec<u8> = Vec::with_capacity_in(len, &b);
+    /// let mut vec: ArenaVec<u8> = ArenaVec::with_capacity_in(len, &b);
     ///
     /// for i in 0..len {
     ///     // SAFETY: we initialize memory via `pointer::write`
@@ -1229,11 +1229,11 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let mut v = bumpalo::vec![in &b; "foo", "bar", "baz", "qux"];
+    /// let mut v = swc_next_allocator::vec![in &b; "foo", "bar", "baz", "qux"];
     ///
     /// assert_eq!(v.swap_remove(1), "bar");
     /// assert_eq!(v, ["foo", "qux", "baz"]);
@@ -1264,11 +1264,11 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let mut vec = bumpalo::vec![in &b; 1, 2, 3];
+    /// let mut vec = swc_next_allocator::vec![in &b; 1, 2, 3];
     /// vec.insert(1, 4);
     /// assert_eq!(vec, [1, 4, 2, 3]);
     /// vec.insert(4, 5);
@@ -1309,11 +1309,11 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let mut v = bumpalo::vec![in &b; 1, 2, 3];
+    /// let mut v = swc_next_allocator::vec![in &b; 1, 2, 3];
     /// assert_eq!(v.remove(1), 2);
     /// assert_eq!(v, [1, 3]);
     /// ```
@@ -1347,11 +1347,11 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let mut vec = bumpalo::vec![in &b; 1, 2, 3, 4];
+    /// let mut vec = swc_next_allocator::vec![in &b; 1, 2, 3, 4];
     /// vec.retain(|x: &i32| *x % 2 == 0);
     /// assert_eq!(vec, [2, 4]);
     /// ```
@@ -1371,11 +1371,11 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let mut vec = bumpalo::vec![in &b; 1, 2, 3, 4];
+    /// let mut vec = swc_next_allocator::vec![in &b; 1, 2, 3, 4];
     /// vec.retain_mut(|x: &mut i32| *x % 2 == 0);
     /// assert_eq!(vec, [2, 4]);
     /// ```
@@ -1392,14 +1392,14 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::Bump;
-    /// use bumpalo::collections::{CollectIn, Vec};
+    /// use swc_next_allocator::Allocator;
+    /// use swc_next_allocator::vec::ArenaVec;
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let mut numbers = bumpalo::vec![in &b; 1, 2, 3, 4, 5];
+    /// let mut numbers = swc_next_allocator::vec![in &b; 1, 2, 3, 4, 5];
     ///
-    /// let evens: Vec<_> = numbers.drain_filter(|x| *x % 2 == 0).collect_in(&b);
+    /// let evens: ArenaVec<_> = ArenaVec::from_iter_in(numbers.drain_filter(|x| *x % 2 == 0), &b);
     ///
     /// assert_eq!(numbers, &[1, 3, 5]);
     /// assert_eq!(evens, &[2, 4]);
@@ -1432,11 +1432,11 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let mut vec = bumpalo::vec![in &b; 10, 20, 21, 30, 20];
+    /// let mut vec = swc_next_allocator::vec![in &b; 10, 20, 21, 30, 20];
     ///
     /// vec.dedup_by_key(|i| *i / 10);
     ///
@@ -1463,11 +1463,11 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let mut vec = bumpalo::vec![in &b; "foo", "bar", "Bar", "baz", "bar"];
+    /// let mut vec = swc_next_allocator::vec![in &b; "foo", "bar", "Bar", "baz", "bar"];
     ///
     /// vec.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
     ///
@@ -1520,11 +1520,11 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let mut vec = bumpalo::vec![in &b; 1, 2];
+    /// let mut vec = swc_next_allocator::vec![in &b; 1, 2];
     /// vec.push(3);
     /// assert_eq!(vec, [1, 2, 3]);
     /// ```
@@ -1548,11 +1548,11 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let mut vec = bumpalo::vec![in &b; 1, 2, 3];
+    /// let mut vec = swc_next_allocator::vec![in &b; 1, 2, 3];
     /// assert_eq!(vec.pop(), Some(3));
     /// assert_eq!(vec, [1, 2]);
     /// ```
@@ -1575,10 +1575,10 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
-    /// let mut vec = bumpalo::vec![in &b; 1, 2, 3, 4];
+    /// let b = Allocator::new();
+    /// let mut vec = swc_next_allocator::vec![in &b; 1, 2, 3, 4];
     /// let pred = |x: &mut i32| *x % 2 == 0;
     ///
     /// assert_eq!(vec.pop_if(pred), Some(4));
@@ -1600,12 +1600,12 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let mut vec = bumpalo::vec![in &b; 1, 2, 3];
-    /// let mut vec2 = bumpalo::vec![in &b; 4, 5, 6];
+    /// let mut vec = swc_next_allocator::vec![in &b; 1, 2, 3];
+    /// let mut vec2 = swc_next_allocator::vec![in &b; 4, 5, 6];
     /// vec.append(&mut vec2);
     /// assert_eq!(vec, [1, 2, 3, 4, 5, 6]);
     /// assert_eq!(vec2, []);
@@ -1645,14 +1645,14 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::Bump;
-    /// use bumpalo::collections::{CollectIn, Vec};
+    /// use swc_next_allocator::Allocator;
+    /// use swc_next_allocator::vec::ArenaVec;
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let mut v = bumpalo::vec![in &b; 1, 2, 3];
+    /// let mut v = swc_next_allocator::vec![in &b; 1, 2, 3];
     ///
-    /// let u: Vec<_> = v.drain(1..).collect_in(&b);
+    /// let u: ArenaVec<_> = ArenaVec::from_iter_in(v.drain(1..), &b);
     ///
     /// assert_eq!(v, &[1]);
     /// assert_eq!(u, &[2, 3]);
@@ -1712,11 +1712,11 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let mut v = bumpalo::vec![in &b; 1, 2, 3];
+    /// let mut v = swc_next_allocator::vec![in &b; 1, 2, 3];
     ///
     /// v.clear();
     ///
@@ -1733,11 +1733,11 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let a = bumpalo::vec![in &b; 1, 2, 3];
+    /// let a = swc_next_allocator::vec![in &b; 1, 2, 3];
     /// assert_eq!(a.len(), 3);
     /// ```
     #[inline]
@@ -1750,11 +1750,11 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let mut v = Vec::new_in(&b);
+    /// let mut v = ArenaVec::new_in(&b);
     /// assert!(v.is_empty());
     ///
     /// v.push(1);
@@ -1778,11 +1778,11 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let mut vec = bumpalo::vec![in &b; 1, 2, 3];
+    /// let mut vec = swc_next_allocator::vec![in &b; 1, 2, 3];
     /// let vec2 = vec.split_off(1);
     /// assert_eq!(vec, [1]);
     /// assert_eq!(vec2, [2, 3]);
@@ -1792,7 +1792,7 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
         assert!(at <= self.len(), "`at` out of bounds");
 
         let other_len = self.len_usize() - at;
-        let mut other = Vec::with_capacity_in(other_len, self.buf.bump());
+        let mut other = ArenaVec::with_capacity_in(other_len, self.buf.bump());
 
         // Unsafely `set_len` and copy items to `other`.
         unsafe {
@@ -1806,7 +1806,7 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
 }
 
 #[cfg(feature = "boxed")]
-impl<'bump, T> Vec<'bump, T> {
+impl<'bump, T> ArenaVec<'bump, T> {
     /// Converts the vector into [`Box<[T]>`][owned slice].
     ///
     /// Note that this will drop any excess capacity.
@@ -1816,9 +1816,9 @@ impl<'bump, T> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec, vec};
+    /// use swc_next_allocator::{Allocator, vec};
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
     /// let v = vec![in &b; 1, 2, 3];
     ///
@@ -1837,12 +1837,12 @@ impl<'bump, T> Vec<'bump, T> {
     }
 }
 
-impl<'bump, T: 'bump + Clone> Vec<'bump, T> {
-    /// Resizes the `Vec` in-place so that `len` is equal to `new_len`.
+impl<'bump, T: 'bump + Clone> ArenaVec<'bump, T> {
+    /// Resizes the `ArenaVec` in-place so that `len` is equal to `new_len`.
     ///
-    /// If `new_len` is greater than `len`, the `Vec` is extended by the
+    /// If `new_len` is greater than `len`, the `ArenaVec` is extended by the
     /// difference, with each additional slot filled with `value`.
-    /// If `new_len` is less than `len`, the `Vec` is simply truncated.
+    /// If `new_len` is less than `len`, the `ArenaVec` is simply truncated.
     ///
     /// This method requires [`Clone`] to be able clone the passed value. If
     /// you need more flexibility (or want to rely on [`Default`] instead of
@@ -1851,15 +1851,15 @@ impl<'bump, T: 'bump + Clone> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let mut vec = bumpalo::vec![in &b; "hello"];
+    /// let mut vec = swc_next_allocator::vec![in &b; "hello"];
     /// vec.resize(3, "world");
     /// assert_eq!(vec, ["hello", "world", "world"]);
     ///
-    /// let mut vec = bumpalo::vec![in &b; 1, 2, 3, 4];
+    /// let mut vec = swc_next_allocator::vec![in &b; 1, 2, 3, 4];
     /// vec.resize(2, 0);
     /// assert_eq!(vec, [1, 2]);
     /// ```
@@ -1979,10 +1979,10 @@ impl<'bump, T: 'bump + Clone> Vec<'bump, T> {
         }
     }
 
-    /// Clones and appends all elements in a slice to the `Vec`.
+    /// Clones and appends all elements in a slice to the `ArenaVec`.
     ///
     /// Iterates over the slice `other`, clones each element, and then appends
-    /// it to this `Vec`. The `other` vector is traversed in-order.
+    /// it to this `ArenaVec`. The `other` vector is traversed in-order.
     ///
     /// Note that this function is same as [`extend`] except that it is
     /// specialized to work with slices instead. If and when Rust gets
@@ -1992,11 +1992,11 @@ impl<'bump, T: 'bump + Clone> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let mut vec = bumpalo::vec![in &b; 1];
+    /// let mut vec = swc_next_allocator::vec![in &b; 1];
     /// vec.extend_from_slice(&[2, 3, 4]);
     /// assert_eq!(vec, [1, 2, 3, 4]);
     /// ```
@@ -2006,7 +2006,7 @@ impl<'bump, T: 'bump + Clone> Vec<'bump, T> {
         let capacity = self.capacity();
 
         /*
-        Cannot underflow via invariant of the Vec (capacity >= length).
+        Cannot underflow via invariant of the ArenaVec (capacity >= length).
 
         This also holds for ZSTs, as capacity is usize::MAX
         */
@@ -2042,7 +2042,7 @@ impl<'bump, T: 'bump + Clone> Vec<'bump, T> {
     }
 }
 
-impl<'bump, T: 'bump + Copy> Vec<'bump, T> {
+impl<'bump, T: 'bump + Copy> ArenaVec<'bump, T> {
     /// Helper method to copy all of the items in `other` and append them to the end of `self`.
     ///
     /// SAFETY:
@@ -2059,7 +2059,7 @@ impl<'bump, T: 'bump + Copy> Vec<'bump, T> {
         // * `dst` is valid for writes of `other.len()` bytes because the caller of this
         //   method is required to `reserve` capacity to store at least `other.len()` items
         //   beforehand.
-        // * Because `src` is a `&[T]` and dst is a `&[T]` within the `Vec<T>`,
+        // * Because `src` is a `&[T]` and dst is a `&[T]` within the `ArenaVec<T>`,
         //   `copy_nonoverlapping`'s alignment requirements are met.
         // * Caller is required to guarantee that the source and destination ranges cannot overlap
         unsafe {
@@ -2070,7 +2070,7 @@ impl<'bump, T: 'bump + Copy> Vec<'bump, T> {
         }
     }
 
-    /// Copies all elements in the slice `other` and appends them to the `Vec`.
+    /// Copies all elements in the slice `other` and appends them to the `ArenaVec`.
     ///
     /// Note that this function is same as [`extend_from_slice`] except that it is optimized for
     /// slices of types that implement the `Copy` trait. If and when Rust gets specialization
@@ -2082,21 +2082,21 @@ impl<'bump, T: 'bump + Copy> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let mut vec = bumpalo::vec![in &b; 1];
+    /// let mut vec = swc_next_allocator::vec![in &b; 1];
     /// vec.extend_from_slice_copy(&[2, 3, 4]);
     /// assert_eq!(vec, [1, 2, 3, 4]);
     /// ```
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let mut vec = bumpalo::vec![in &b; 'H' as u8];
+    /// let mut vec = swc_next_allocator::vec![in &b; 'H' as u8];
     /// vec.extend_from_slice_copy("ello, world!".as_bytes());
     /// assert_eq!(vec, "Hello, world!".as_bytes());
     /// ```
@@ -2104,7 +2104,7 @@ impl<'bump, T: 'bump + Copy> Vec<'bump, T> {
     /// [`extend_from_slice`]: #method.extend_from_slice
     /// [`extend_from_slices`]: #method.extend_from_slices
     pub fn extend_from_slice_copy(&mut self, other: &[T]) {
-        // Reserve space in the Vec for the values to be added
+        // Reserve space in the ArenaVec for the values to be added
         self.reserve(other.len());
 
         // Copy values into the space that was just reserved
@@ -2118,7 +2118,7 @@ impl<'bump, T: 'bump + Copy> Vec<'bump, T> {
         }
     }
 
-    /// For each slice in `slices`, copies all elements in the slice and appends them to the `Vec`.
+    /// For each slice in `slices`, copies all elements in the slice and appends them to the `ArenaVec`.
     ///
     /// This method is equivalent to calling [`extend_from_slice_copy`] in a loop, but is able
     /// to precompute the total amount of space to reserve in advance. This reduces the potential
@@ -2127,21 +2127,21 @@ impl<'bump, T: 'bump + Copy> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let mut vec = bumpalo::vec![in &b; 1];
+    /// let mut vec = swc_next_allocator::vec![in &b; 1];
     /// vec.extend_from_slices_copy(&[&[2, 3], &[], &[4]]);
     /// assert_eq!(vec, [1, 2, 3, 4]);
     /// ```
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let mut vec = bumpalo::vec![in &b; 'H' as u8];
+    /// let mut vec = swc_next_allocator::vec![in &b; 'H' as u8];
     /// vec.extend_from_slices_copy(&["ello,".as_bytes(), &[], " world!".as_bytes()]);
     /// assert_eq!(vec, "Hello, world!".as_bytes());
     /// ```
@@ -2183,7 +2183,7 @@ impl<T: Clone> ExtendWith<T> for ExtendElement<T> {
     }
 }
 
-impl<'bump, T: 'bump> Vec<'bump, T> {
+impl<'bump, T: 'bump> ArenaVec<'bump, T> {
     /// Extend the vector by `n` values, using the given generator.
     fn extend_with<E: ExtendWith<T>>(&mut self, n: usize, mut value: E) {
         self.reserve(n);
@@ -2217,7 +2217,7 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
 // Set the length of the vec when the `SetLenOnDrop` value goes out of scope.
 //
 // The idea is: The length field in SetLenOnDrop is a local variable
-// that the optimizer will see does not alias with any stores through the Vec's data
+// that the optimizer will see does not alias with any stores through the ArenaVec's data
 // pointer. This is a workaround for alias analysis issue #32155
 struct SetLenOnDrop<'a, 'bump, T> {
     buf: &'a mut RawVec<'bump, T>,
@@ -2250,7 +2250,7 @@ impl<T> Drop for SetLenOnDrop<'_, '_, T> {
     }
 }
 
-impl<'bump, T: 'bump + PartialEq> Vec<'bump, T> {
+impl<'bump, T: 'bump + PartialEq> ArenaVec<'bump, T> {
     /// Removes consecutive repeated elements in the vector according to the
     /// [`PartialEq`] trait implementation.
     ///
@@ -2259,11 +2259,11 @@ impl<'bump, T: 'bump + PartialEq> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let mut vec = bumpalo::vec![in &b; 1, 2, 2, 3, 2];
+    /// let mut vec = swc_next_allocator::vec![in &b; 1, 2, 2, 3, 2];
     ///
     /// vec.dedup();
     ///
@@ -2276,13 +2276,13 @@ impl<'bump, T: 'bump + PartialEq> Vec<'bump, T> {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// Common trait implementations for Vec
+// Common trait implementations for ArenaVec
 ////////////////////////////////////////////////////////////////////////////////
 
-impl<'bump, T: 'bump + Clone> Clone for Vec<'bump, T> {
+impl<'bump, T: 'bump + Clone> Clone for ArenaVec<'bump, T> {
     #[cfg(not(test))]
-    fn clone(&self) -> Vec<'bump, T> {
-        let mut v = Vec::with_capacity_in(self.len(), self.buf.bump());
+    fn clone(&self) -> ArenaVec<'bump, T> {
+        let mut v = ArenaVec::with_capacity_in(self.len(), self.buf.bump());
         v.extend(self.iter().cloned());
         v
     }
@@ -2292,21 +2292,21 @@ impl<'bump, T: 'bump + Clone> Clone for Vec<'bump, T> {
     // `slice::to_vec`  function which is only available with cfg(test)
     // NB see the slice::hack module in slice.rs for more information
     #[cfg(test)]
-    fn clone(&self) -> Vec<'bump, T> {
-        let mut v = Vec::new_in(self.buf.bump());
+    fn clone(&self) -> ArenaVec<'bump, T> {
+        let mut v = ArenaVec::new_in(self.buf.bump());
         v.extend(self.iter().cloned());
         v
     }
 }
 
-impl<'bump, T: 'bump + Hash> Hash for Vec<'bump, T> {
+impl<'bump, T: 'bump + Hash> Hash for ArenaVec<'bump, T> {
     #[inline]
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         Hash::hash(&**self, state)
     }
 }
 
-impl<'bump, T, I> Index<I> for Vec<'bump, T>
+impl<'bump, T, I> Index<I> for ArenaVec<'bump, T>
 where
     I: ::core::slice::SliceIndex<[T]>,
 {
@@ -2318,7 +2318,7 @@ where
     }
 }
 
-impl<'bump, T, I> IndexMut<I> for Vec<'bump, T>
+impl<'bump, T, I> IndexMut<I> for ArenaVec<'bump, T>
 where
     I: ::core::slice::SliceIndex<[T]>,
 {
@@ -2328,7 +2328,7 @@ where
     }
 }
 
-impl<'bump, T: 'bump> ops::Deref for Vec<'bump, T> {
+impl<'bump, T: 'bump> ops::Deref for ArenaVec<'bump, T> {
     type Target = [T];
 
     fn deref(&self) -> &[T] {
@@ -2340,7 +2340,7 @@ impl<'bump, T: 'bump> ops::Deref for Vec<'bump, T> {
     }
 }
 
-impl<'bump, T: 'bump> ops::DerefMut for Vec<'bump, T> {
+impl<'bump, T: 'bump> ops::DerefMut for ArenaVec<'bump, T> {
     fn deref_mut(&mut self) -> &mut [T] {
         unsafe {
             let ptr = self.buf.ptr();
@@ -2350,7 +2350,7 @@ impl<'bump, T: 'bump> ops::DerefMut for Vec<'bump, T> {
     }
 }
 
-impl<'bump, T: 'bump> IntoIterator for Vec<'bump, T> {
+impl<'bump, T: 'bump> IntoIterator for ArenaVec<'bump, T> {
     type Item = T;
     type IntoIter = IntoIter<'bump, T>;
 
@@ -2361,11 +2361,11 @@ impl<'bump, T: 'bump> IntoIterator for Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let v = bumpalo::vec![in &b; "a".to_string(), "b".to_string()];
+    /// let v = swc_next_allocator::vec![in &b; "a".to_string(), "b".to_string()];
     /// for s in v.into_iter() {
     ///     // s has type String, not &String
     ///     println!("{}", s);
@@ -2390,7 +2390,7 @@ impl<'bump, T: 'bump> IntoIterator for Vec<'bump, T> {
     }
 }
 
-impl<'a, 'bump, T> IntoIterator for &'a Vec<'bump, T> {
+impl<'a, 'bump, T> IntoIterator for &'a ArenaVec<'bump, T> {
     type Item = &'a T;
     type IntoIter = slice::Iter<'a, T>;
 
@@ -2399,7 +2399,7 @@ impl<'a, 'bump, T> IntoIterator for &'a Vec<'bump, T> {
     }
 }
 
-impl<'a, 'bump, T> IntoIterator for &'a mut Vec<'bump, T> {
+impl<'a, 'bump, T> IntoIterator for &'a mut ArenaVec<'bump, T> {
     type Item = &'a mut T;
     type IntoIter = slice::IterMut<'a, T>;
 
@@ -2408,7 +2408,7 @@ impl<'a, 'bump, T> IntoIterator for &'a mut Vec<'bump, T> {
     }
 }
 
-impl<'bump, T: 'bump> Extend<T> for Vec<'bump, T> {
+impl<'bump, T: 'bump> Extend<T> for ArenaVec<'bump, T> {
     #[inline]
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
         let iter = iter.into_iter();
@@ -2420,7 +2420,7 @@ impl<'bump, T: 'bump> Extend<T> for Vec<'bump, T> {
     }
 }
 
-impl<'bump, T: 'bump> Vec<'bump, T> {
+impl<'bump, T: 'bump> ArenaVec<'bump, T> {
     /// Creates a splicing iterator that replaces the specified range in the vector
     /// with the given `replace_with` iterator and yields the removed items.
     /// `replace_with` does not need to be the same length as `range`.
@@ -2450,13 +2450,13 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let mut v = bumpalo::vec![in &b; 1, 2, 3];
+    /// let mut v = swc_next_allocator::vec![in &b; 1, 2, 3];
     /// let new = [7, 8];
-    /// let u: Vec<_> = Vec::from_iter_in(v.splice(..2, new.iter().cloned()), &b);
+    /// let u: ArenaVec<_> = ArenaVec::from_iter_in(v.splice(..2, new.iter().cloned()), &b);
     /// assert_eq!(v, &[7, 8, 3]);
     /// assert_eq!(u, &[1, 2]);
     /// ```
@@ -2477,13 +2477,13 @@ impl<'bump, T: 'bump> Vec<'bump, T> {
     }
 }
 
-/// Extend implementation that copies elements out of references before pushing them onto the Vec.
+/// Extend implementation that copies elements out of references before pushing them onto the ArenaVec.
 ///
 /// This implementation is specialized for slice iterators, where it uses [`copy_from_slice`] to
 /// append the entire slice at once.
 ///
 /// [`copy_from_slice`]: https://doc.rust-lang.org/std/primitive.slice.html#method.copy_from_slice
-impl<'a, 'bump, T: 'a + Copy> Extend<&'a T> for Vec<'bump, T> {
+impl<'a, 'bump, T: 'a + Copy> Extend<&'a T> for ArenaVec<'bump, T> {
     fn extend<I: IntoIterator<Item = &'a T>>(&mut self, iter: I) {
         self.extend(iter.into_iter().cloned())
     }
@@ -2506,10 +2506,10 @@ macro_rules! __impl_slice_eq1 {
     };
 }
 
-__impl_slice_eq1! { Vec<'a, A>, Vec<'b, B> }
-__impl_slice_eq1! { Vec<'a, A>, &'b [B] }
-__impl_slice_eq1! { Vec<'a, A>, &'b mut [B] }
-// __impl_slice_eq1! { Cow<'a, [A]>, Vec<'b, B>, Clone }
+__impl_slice_eq1! { ArenaVec<'a, A>, ArenaVec<'b, B> }
+__impl_slice_eq1! { ArenaVec<'a, A>, &'b [B] }
+__impl_slice_eq1! { ArenaVec<'a, A>, &'b mut [B] }
+// __impl_slice_eq1! { Cow<'a, [A]>, ArenaVec<'b, B>, Clone }
 
 macro_rules! __impl_slice_eq1_array {
     ($Lhs: ty, $Rhs: ty) => {
@@ -2525,73 +2525,73 @@ macro_rules! __impl_slice_eq1_array {
     };
 }
 
-__impl_slice_eq1_array! { Vec<'a, A>, [B; N] }
-__impl_slice_eq1_array! { Vec<'a, A>, &'b [B; N] }
-__impl_slice_eq1_array! { Vec<'a, A>, &'b mut [B; N] }
+__impl_slice_eq1_array! { ArenaVec<'a, A>, [B; N] }
+__impl_slice_eq1_array! { ArenaVec<'a, A>, &'b [B; N] }
+__impl_slice_eq1_array! { ArenaVec<'a, A>, &'b mut [B; N] }
 
 /// Implements comparison of vectors, lexicographically.
-impl<'bump, T: 'bump + PartialOrd> PartialOrd for Vec<'bump, T> {
+impl<'bump, T: 'bump + PartialOrd> PartialOrd for ArenaVec<'bump, T> {
     #[inline]
-    fn partial_cmp(&self, other: &Vec<'bump, T>) -> Option<Ordering> {
+    fn partial_cmp(&self, other: &ArenaVec<'bump, T>) -> Option<Ordering> {
         PartialOrd::partial_cmp(&**self, &**other)
     }
 }
 
-impl<'bump, T: 'bump + Eq> Eq for Vec<'bump, T> {}
+impl<'bump, T: 'bump + Eq> Eq for ArenaVec<'bump, T> {}
 
 /// Implements ordering of vectors, lexicographically.
-impl<'bump, T: 'bump + Ord> Ord for Vec<'bump, T> {
+impl<'bump, T: 'bump + Ord> Ord for ArenaVec<'bump, T> {
     #[inline]
-    fn cmp(&self, other: &Vec<'bump, T>) -> Ordering {
+    fn cmp(&self, other: &ArenaVec<'bump, T>) -> Ordering {
         Ord::cmp(&**self, &**other)
     }
 }
 
-impl<'bump, T: 'bump + fmt::Debug> fmt::Debug for Vec<'bump, T> {
+impl<'bump, T: 'bump + fmt::Debug> fmt::Debug for ArenaVec<'bump, T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
     }
 }
 
-impl<'bump, T: 'bump> AsRef<Vec<'bump, T>> for Vec<'bump, T> {
-    fn as_ref(&self) -> &Vec<'bump, T> {
+impl<'bump, T: 'bump> AsRef<ArenaVec<'bump, T>> for ArenaVec<'bump, T> {
+    fn as_ref(&self) -> &ArenaVec<'bump, T> {
         self
     }
 }
 
-impl<'bump, T: 'bump> AsMut<Vec<'bump, T>> for Vec<'bump, T> {
-    fn as_mut(&mut self) -> &mut Vec<'bump, T> {
+impl<'bump, T: 'bump> AsMut<ArenaVec<'bump, T>> for ArenaVec<'bump, T> {
+    fn as_mut(&mut self) -> &mut ArenaVec<'bump, T> {
         self
     }
 }
 
-impl<'bump, T: 'bump> AsRef<[T]> for Vec<'bump, T> {
+impl<'bump, T: 'bump> AsRef<[T]> for ArenaVec<'bump, T> {
     fn as_ref(&self) -> &[T] {
         self
     }
 }
 
-impl<'bump, T: 'bump> AsMut<[T]> for Vec<'bump, T> {
+impl<'bump, T: 'bump> AsMut<[T]> for ArenaVec<'bump, T> {
     fn as_mut(&mut self) -> &mut [T] {
         self
     }
 }
 
 #[cfg(feature = "boxed")]
-impl<'bump, T: 'bump> From<Vec<'bump, T>> for crate::boxed::Box<'bump, [T]> {
-    fn from(v: Vec<'bump, T>) -> crate::boxed::Box<'bump, [T]> {
+impl<'bump, T: 'bump> From<ArenaVec<'bump, T>> for crate::boxed::Box<'bump, [T]> {
+    fn from(v: ArenaVec<'bump, T>) -> crate::boxed::Box<'bump, [T]> {
         v.into_boxed_slice()
     }
 }
 
-impl<'bump, T: 'bump> Borrow<[T]> for Vec<'bump, T> {
+impl<'bump, T: 'bump> Borrow<[T]> for ArenaVec<'bump, T> {
     #[inline]
     fn borrow(&self) -> &[T] {
         &self[..]
     }
 }
 
-impl<'bump, T: 'bump> BorrowMut<[T]> for Vec<'bump, T> {
+impl<'bump, T: 'bump> BorrowMut<[T]> for ArenaVec<'bump, T> {
     #[inline]
     fn borrow_mut(&mut self) -> &mut [T] {
         &mut self[..]
@@ -2602,14 +2602,14 @@ impl<'bump, T: 'bump> BorrowMut<[T]> for Vec<'bump, T> {
 // Clone-on-write
 ////////////////////////////////////////////////////////////////////////////////
 
-// impl<'a, 'bump, T: Clone> From<Vec<'bump, T>> for Cow<'a, [T]> {
-//     fn from(v: Vec<'bump, T>) -> Cow<'a, [T]> {
+// impl<'a, 'bump, T: Clone> From<ArenaVec<'bump, T>> for Cow<'a, [T]> {
+//     fn from(v: ArenaVec<'bump, T>) -> Cow<'a, [T]> {
 //         Cow::Owned(v)
 //     }
 // }
 
-// impl<'a, 'bump, T: Clone> From<&'a Vec<'bump, T>> for Cow<'a, [T]> {
-//     fn from(v: &'a Vec<'bump, T>) -> Cow<'a, [T]> {
+// impl<'a, 'bump, T: Clone> From<&'a ArenaVec<'bump, T>> for Cow<'a, [T]> {
+//     fn from(v: &'a ArenaVec<'bump, T>) -> Cow<'a, [T]> {
 //         Cow::Borrowed(v.as_slice())
 //     }
 // }
@@ -2620,7 +2620,7 @@ impl<'bump, T: 'bump> BorrowMut<[T]> for Vec<'bump, T> {
 
 /// An iterator that moves out of a vector.
 ///
-/// This `struct` is created by the [`Vec::into_iter`] method
+/// This `struct` is created by the [`ArenaVec::into_iter`] method
 /// (provided by the [`IntoIterator`] trait).
 ///
 /// [`IntoIterator`]: https://doc.rust-lang.org/std/iter/trait.IntoIterator.html
@@ -2642,11 +2642,11 @@ impl<'bump, T: 'bump> IntoIter<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let vec = bumpalo::vec![in &b; 'a', 'b', 'c'];
+    /// let vec = swc_next_allocator::vec![in &b; 'a', 'b', 'c'];
     /// let mut into_iter = vec.into_iter();
     /// assert_eq!(into_iter.as_slice(), &['a', 'b', 'c']);
     /// let _ = into_iter.next().unwrap();
@@ -2661,11 +2661,11 @@ impl<'bump, T: 'bump> IntoIter<'bump, T> {
     /// # Examples
     ///
     /// ```ignore
-    /// use bumpalo::{Bump, collections::Vec};
+    /// use swc_next_allocator::{Allocator, vec::ArenaVec};
     ///
-    /// let b = Bump::new();
+    /// let b = Allocator::new();
     ///
-    /// let vec = bumpalo::vec![in &b; 'a', 'b', 'c'];
+    /// let vec = swc_next_allocator::vec![in &b; 'a', 'b', 'c'];
     /// let mut into_iter = vec.into_iter();
     /// assert_eq!(into_iter.as_slice(), &['a', 'b', 'c']);
     /// into_iter.as_mut_slice()[2] = 'z';
@@ -2754,9 +2754,9 @@ impl<'bump, T> Drop for IntoIter<'bump, T> {
     }
 }
 
-/// A draining iterator for `Vec<'bump, T>`.
+/// A draining iterator for `ArenaVec<'bump, T>`.
 ///
-/// This `struct` is created by the [`Vec::drain`] method.
+/// This `struct` is created by the [`ArenaVec::drain`] method.
 pub struct Drain<'a, 'bump, T: 'a + 'bump> {
     /// Index of tail to preserve
     tail_start: usize,
@@ -2764,7 +2764,7 @@ pub struct Drain<'a, 'bump, T: 'a + 'bump> {
     tail_len: usize,
     /// Current remaining range to remove
     iter: slice::Iter<'a, T>,
-    vec: NonNull<Vec<'bump, T>>,
+    vec: NonNull<ArenaVec<'bump, T>>,
 }
 
 impl<'a, 'bump, T: 'a + 'bump + fmt::Debug> fmt::Debug for Drain<'a, 'bump, T> {
@@ -2826,9 +2826,9 @@ impl<'a, 'bump, T> ExactSizeIterator for Drain<'a, 'bump, T> {}
 
 impl<'a, 'bump, T> FusedIterator for Drain<'a, 'bump, T> {}
 
-/// A splicing iterator for `Vec`.
+/// A splicing iterator for `ArenaVec`.
 ///
-/// This struct is created by the [`Vec::splice`] method. See its
+/// This struct is created by the [`ArenaVec::splice`] method. See its
 /// documentation for more information.
 #[derive(Debug)]
 pub struct Splice<'a, 'bump, I>
@@ -2887,7 +2887,7 @@ impl<'a, 'bump, I: Iterator> Drop for Splice<'a, 'bump, I> {
 
             // Collect any remaining elements.
             // This is a zero-length vector which does not allocate if `lower_bound` was exact.
-            let mut collected = Vec::new_in(self.drain.vec.as_ref().buf.bump());
+            let mut collected = ArenaVec::new_in(self.drain.vec.as_ref().buf.bump());
             collected.extend(self.replace_with.by_ref());
             let mut collected = collected.into_iter();
             // Now we have an exact count.
@@ -2945,13 +2945,13 @@ impl<'a, 'bump, T> Drain<'a, 'bump, T> {
     }
 }
 
-/// An iterator produced by calling [`Vec::drain_filter`].
+/// An iterator produced by calling [`ArenaVec::drain_filter`].
 #[derive(Debug)]
 pub struct DrainFilter<'a, 'bump: 'a, T: 'a + 'bump, F>
 where
     F: FnMut(&mut T) -> bool,
 {
-    vec: &'a mut Vec<'bump, T>,
+    vec: &'a mut ArenaVec<'bump, T>,
     idx: usize,
     del: usize,
     old_len: usize,
@@ -3005,7 +3005,7 @@ where
 }
 
 #[cfg(feature = "std")]
-impl<'bump> io::Write for Vec<'bump, u8> {
+impl<'bump> io::Write for ArenaVec<'bump, u8> {
     #[inline]
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.extend_from_slice_copy(buf);
@@ -3030,7 +3030,7 @@ mod serialize {
 
     use serde::{Serialize, Serializer, ser::SerializeSeq};
 
-    impl<'a, T> Serialize for Vec<'a, T>
+    impl<'a, T> Serialize for ArenaVec<'a, T>
     where
         T: Serialize,
     {

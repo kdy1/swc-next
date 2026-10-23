@@ -1,5 +1,5 @@
 use rustc_hash::FxHashSet;
-use swc_next_allocator::{Allocator, vec::Vec as ArenaVec};
+use swc_next_allocator::{Allocator, vec::ArenaVec};
 use swc_next_ecma_ast::{
     Ast, AstUtf8, BindingIdentifier, BreakStatement, ClassElement, ClassElementData,
     ContinueStatement, DebuggerStatement, ExportAllDeclaration, ExportDefaultDeclaration,

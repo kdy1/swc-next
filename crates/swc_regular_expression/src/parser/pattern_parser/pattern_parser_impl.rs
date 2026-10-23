@@ -1,6 +1,6 @@
 use crate::diagnostic::Result;
 use crate::string::Str;
-use swc_next_allocator::{Allocator, boxed::Box, vec::Vec};
+use swc_next_allocator::{Allocator, boxed::Box, vec::ArenaVec};
 
 use crate::{
     ast, diagnostics,
@@ -107,7 +107,7 @@ impl<'a> PatternParser<'a> {
     fn parse_disjunction(&mut self) -> Result<ast::Disjunction<'a>> {
         let span_start = self.reader.offset();
 
-        let mut body = Vec::new_in(self.allocator);
+        let mut body = ArenaVec::new_in(self.allocator);
         loop {
             body.push(self.parse_alternative()?);
 
@@ -130,7 +130,7 @@ impl<'a> PatternParser<'a> {
     fn parse_alternative(&mut self) -> Result<ast::Alternative<'a>> {
         let span_start = self.reader.offset();
 
-        let mut body = Vec::new_in(self.allocator);
+        let mut body = ArenaVec::new_in(self.allocator);
         while let Some(term) = self.parse_term()? {
             body.push(term);
         }
@@ -845,7 +845,7 @@ impl<'a> PatternParser<'a> {
         &mut self,
     ) -> Result<(
         ast::CharacterClassContentsKind,
-        Vec<'a, ast::CharacterClassContents<'a>>,
+        ArenaVec<'a, ast::CharacterClassContents<'a>>,
     )> {
         // [empty]
         if self.reader.peek().as_ref().is_some_and(|&cp| cp == ']' as u32)
@@ -854,7 +854,7 @@ impl<'a> PatternParser<'a> {
         {
             return Ok((
                 ast::CharacterClassContentsKind::Union,
-                Vec::new_in(self.allocator),
+                ArenaVec::new_in(self.allocator),
             ));
         }
 
@@ -882,9 +882,9 @@ impl<'a> PatternParser<'a> {
         &mut self,
     ) -> Result<(
         ast::CharacterClassContentsKind,
-        Vec<'a, ast::CharacterClassContents<'a>>,
+        ArenaVec<'a, ast::CharacterClassContents<'a>>,
     )> {
-        let mut body = Vec::new_in(self.allocator);
+        let mut body = ArenaVec::new_in(self.allocator);
 
         loop {
             let range_span_start = self.reader.offset();
@@ -1158,7 +1158,7 @@ impl<'a> PatternParser<'a> {
         &mut self,
     ) -> Result<(
         ast::CharacterClassContentsKind,
-        Vec<'a, ast::CharacterClassContents<'a>>,
+        ArenaVec<'a, ast::CharacterClassContents<'a>>,
     )> {
         // ClassUnion :: ClassSetRange ClassUnion[opt]
         if let Some(class_set_range) = self.parse_class_set_range()? {
@@ -1215,9 +1215,9 @@ impl<'a> PatternParser<'a> {
         class_set_range_or_class_set_operand: ast::CharacterClassContents<'a>,
     ) -> Result<(
         ast::CharacterClassContentsKind,
-        Vec<'a, ast::CharacterClassContents<'a>>,
+        ArenaVec<'a, ast::CharacterClassContents<'a>>,
     )> {
-        let mut body = Vec::new_in(self.allocator);
+        let mut body = ArenaVec::new_in(self.allocator);
         body.push(class_set_range_or_class_set_operand);
 
         loop {
@@ -1246,9 +1246,9 @@ impl<'a> PatternParser<'a> {
         class_set_operand: ast::CharacterClassContents<'a>,
     ) -> Result<(
         ast::CharacterClassContentsKind,
-        Vec<'a, ast::CharacterClassContents<'a>>,
+        ArenaVec<'a, ast::CharacterClassContents<'a>>,
     )> {
-        let mut body = Vec::new_in(self.allocator);
+        let mut body = ArenaVec::new_in(self.allocator);
         body.push(class_set_operand);
 
         loop {
@@ -1295,9 +1295,9 @@ impl<'a> PatternParser<'a> {
         class_set_operand: ast::CharacterClassContents<'a>,
     ) -> Result<(
         ast::CharacterClassContentsKind,
-        Vec<'a, ast::CharacterClassContents<'a>>,
+        ArenaVec<'a, ast::CharacterClassContents<'a>>,
     )> {
-        let mut body = Vec::new_in(self.allocator);
+        let mut body = ArenaVec::new_in(self.allocator);
         body.push(class_set_operand);
 
         loop {
@@ -1488,8 +1488,8 @@ impl<'a> PatternParser<'a> {
     // Returns: (ClassStringDisjunctionContents, contain_strings)
     fn parse_class_string_disjunction_contents(
         &mut self,
-    ) -> Result<(Vec<'a, ast::ClassString<'a>>, bool)> {
-        let mut body = Vec::new_in(self.allocator);
+    ) -> Result<(ArenaVec<'a, ast::ClassString<'a>>, bool)> {
+        let mut body = ArenaVec::new_in(self.allocator);
         let mut strings = false;
 
         loop {
@@ -1525,7 +1525,7 @@ impl<'a> PatternParser<'a> {
     fn parse_class_string(&mut self) -> Result<ast::ClassString<'a>> {
         let span_start = self.reader.offset();
 
-        let mut body = Vec::new_in(self.allocator);
+        let mut body = ArenaVec::new_in(self.allocator);
         while let Some(class_set_character) = self.parse_class_set_character()? {
             body.push(class_set_character);
         }
@@ -2470,7 +2470,7 @@ impl<'a> PatternParser<'a> {
 
     fn may_contain_strings_in_class_contents(
         kind: ast::CharacterClassContentsKind,
-        body: &Vec<'a, ast::CharacterClassContents<'a>>,
+        body: &ArenaVec<'a, ast::CharacterClassContents<'a>>,
     ) -> bool {
         let may_contain_strings = |item: &ast::CharacterClassContents<'a>| match item {
             // MayContainStrings is true

@@ -1,6 +1,4 @@
-use swc_next_allocator::{
-    Allocator, hash_map::HashMap as ArenaHashMap, vec::Vec as ArenaVec, wtf8::Wtf8,
-};
+use swc_next_allocator::{Allocator, hash_map::HashMap as ArenaHashMap, vec::ArenaVec, wtf8::Wtf8};
 
 macro_rules! define_ast_string {
     ($name:ident) => {

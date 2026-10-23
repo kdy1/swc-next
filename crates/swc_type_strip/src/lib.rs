@@ -6,7 +6,7 @@
 use std::borrow::Cow;
 
 use edit::{EditPlan, FixedSubstitution};
-use swc_next_allocator::{Allocator, vec::Vec as ArenaVec};
+use swc_next_allocator::{Allocator, vec::ArenaVec};
 use swc_next_ecma_ast::{
     Accessibility, ArrowFunctionExpression, Ast, BinaryExpression, CallExpression, ChainExpression,
     Class, ClassElement, Decl, DeclData, Decorator, DoWhileStatement, ExportAllDeclaration,

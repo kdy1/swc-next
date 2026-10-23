@@ -2,7 +2,7 @@ use std::hint::cold_path;
 
 use memchr::{memchr, memchr2, memchr3};
 use swc_next_allocator::Allocator;
-use swc_next_allocator::vec::Vec as ArenaVec;
+use swc_next_allocator::vec::ArenaVec;
 use swc_next_ecma_ast::{
     Comment, CommentKind, CommentPosition, Span, is_ident_continue_ascii, is_ident_start_ascii,
 };
