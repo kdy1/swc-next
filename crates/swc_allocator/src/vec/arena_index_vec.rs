@@ -94,6 +94,26 @@ impl<'alloc, I: Idx, T> ArenaIndexVec<'alloc, I, T> {
         self.raw.bump()
     }
 
+    /// Returns the number of elements in the vector.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.raw.len()
+    }
+
+    /// Returns whether the vector is empty.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.raw.is_empty()
+    }
+
+    /// Iterates over all initialized indices.
+    #[inline]
+    pub fn indices(&self) -> std::iter::Map<std::ops::Range<u32>, fn(u32) -> I> {
+        // Match the storage's counter width so index conversions do not
+        // obscure the loop's bounds when its indices are used for access.
+        (0..self.raw.len_u32()).map(|index| I::from_usize(index as usize))
+    }
+
     /// Sets the initialized length without changing the allocation.
     ///
     /// # Safety
@@ -113,13 +133,27 @@ impl<'alloc, I: Idx, T> ArenaIndexVec<'alloc, I, T> {
         );
     }
 
+    #[inline]
+    fn check_additional(&self, additional: usize) {
+        // ArenaVec already rejects lengths above u32::MAX, including for ZSTs.
+        // Only narrower index types need an additional growth check.
+        if I::MAX < u32::MAX as usize - 1 {
+            Self::check_len(
+                self.len()
+                    .checked_add(additional)
+                    .expect("capacity overflow"),
+            );
+        }
+    }
+
     /// Returns the next index that [`push`](Self::push) will assign.
     ///
     /// Panics when no more indices are representable by `I`.
     #[inline]
     pub fn next_idx(&self) -> I {
         assert!(self.len() <= I::MAX, "length exceeds index type range");
-        I::from_usize(self.len())
+        // SAFETY: The index was checked above.
+        unsafe { I::from_usize_unchecked(self.len()) }
     }
 
     /// Appends a value and returns its index.
@@ -127,9 +161,12 @@ impl<'alloc, I: Idx, T> ArenaIndexVec<'alloc, I, T> {
     /// Panics before modifying the vector if its next index exceeds `I::MAX`.
     #[inline]
     pub fn push(&mut self, value: T) -> I {
-        let index = self.next_idx();
+        let index = self.len();
+        self.check_additional(1);
         self.raw.push(value);
-        index
+        // SAFETY: Narrow indices were checked before the push. Otherwise,
+        // ArenaVec's u32 length limit guarantees index < u32::MAX, so index <= I::MAX.
+        unsafe { I::from_usize_unchecked(index) }
     }
 
     /// Removes and returns the last value, if any.
@@ -151,11 +188,7 @@ impl<'alloc, I: Idx, T> ArenaIndexVec<'alloc, I, T> {
     /// Panics if the resulting length would exceed the index type's range.
     #[inline]
     pub fn reserve(&mut self, additional: usize) {
-        Self::check_len(
-            self.len()
-                .checked_add(additional)
-                .expect("capacity overflow"),
-        );
+        self.check_additional(additional);
         self.raw.reserve(additional);
     }
 
@@ -187,22 +220,14 @@ impl<'alloc, I: Idx, T> ArenaIndexVec<'alloc, I, T> {
     where
         T: Copy,
     {
-        Self::check_len(
-            self.len()
-                .checked_add(other.len())
-                .expect("capacity overflow"),
-        );
+        self.check_additional(other.len());
         self.raw.extend_from_slice_copy(other);
     }
 
     /// Moves all elements from `other` to the end of this vector.
     #[inline]
     pub fn append(&mut self, other: &mut Self) {
-        Self::check_len(
-            self.len()
-                .checked_add(other.len())
-                .expect("capacity overflow"),
-        );
+        self.check_additional(other.len());
         self.raw.append(&mut other.raw);
     }
 
@@ -365,6 +390,10 @@ mod tests {
         DISABLE_MAX_INDEX_CHECK = true;
     }
 
+    crate::define_nonmax_u32_index_type! {
+        struct NonMaxId;
+    }
+
     #[test]
     fn indexing_and_growth() {
         let allocator = Allocator::new();
@@ -481,6 +510,31 @@ mod tests {
         zst.extend([(); 4]);
         assert!(catch_unwind(AssertUnwindSafe(|| zst.push(()))).is_err());
         assert_eq!(zst.len(), 4);
+
+        let mut full = ArenaIndexVec::<NonMaxId, ()>::new_in(&allocator);
+        // SAFETY: Unit values need no storage or initialization. ArenaVec
+        // supports u32::MAX initialized elements, all representable by NonMaxId.
+        unsafe { full.set_len(u32::MAX as usize) };
+        assert_eq!(full.indices().len(), u32::MAX as usize);
+        assert_eq!(
+            full.indices().next_back().unwrap().index(),
+            u32::MAX as usize - 1
+        );
+        assert!(catch_unwind(AssertUnwindSafe(|| full.next_idx())).is_err());
+        assert!(catch_unwind(AssertUnwindSafe(|| full.push(()))).is_err());
+        assert!(catch_unwind(AssertUnwindSafe(|| full.reserve(1))).is_err());
+        assert!(catch_unwind(AssertUnwindSafe(|| full.extend_from_slice_copy(&[()]))).is_err());
+        let mut other = ArenaIndexVec::from_iter_in([()], &allocator);
+        assert!(catch_unwind(AssertUnwindSafe(|| full.append(&mut other))).is_err());
+        assert_eq!(full.len(), u32::MAX as usize);
+        assert_eq!(other.len(), 1);
+
+        let mut full = ArenaIndexVec::<TestId, ()>::new_in(&allocator);
+        // SAFETY: As above, all unit values are initialized and fit the index type.
+        unsafe { full.set_len(u32::MAX as usize) };
+        assert_eq!(full.next_idx().index(), u32::MAX as usize);
+        assert!(catch_unwind(AssertUnwindSafe(|| full.push(()))).is_err());
+        assert_eq!(full.len(), u32::MAX as usize);
     }
 
     #[test]
