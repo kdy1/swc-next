@@ -8,6 +8,8 @@ pub mod hash_set;
 pub mod vec;
 pub mod wtf8;
 
+pub use oxc_index::Idx;
+
 pub trait CloneIn<'a>: Sized {
     type Cloned;
 

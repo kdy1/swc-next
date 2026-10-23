@@ -7,9 +7,9 @@ use std::{
     slice,
 };
 
-use oxc_index::{Idx, IndexSlice};
+use oxc_index::IndexSlice;
 
-use crate::{Allocator, CloneIn, vec::Vec};
+use crate::{Allocator, CloneIn, Idx, vec::Vec};
 
 /// A growable arena-backed vector indexed by `I`.
 ///

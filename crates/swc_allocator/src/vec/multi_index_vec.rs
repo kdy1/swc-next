@@ -37,7 +37,7 @@ macro_rules! multi_index_vec {
         impl<$alloc> $name<$alloc> {
             #[inline(always)]
             fn max_len() -> usize {
-                <$idx as ::oxc_index::Idx>::MAX
+                <$idx as $crate::Idx>::MAX
                     .saturating_add(1)
                     .min(u32::MAX as usize)
             }
@@ -192,12 +192,12 @@ macro_rules! multi_index_vec {
 
                 // SAFETY: `idx < len <= max_len`, so it is representable by
                 // the configured index type.
-                unsafe { <$idx as ::oxc_index::Idx>::from_usize_unchecked(idx) }
+                unsafe { <$idx as $crate::Idx>::from_usize_unchecked(idx) }
             }
 
             #[inline(always)]
             fn checked_idx(&self, id: $idx) -> usize {
-                let idx = ::oxc_index::Idx::index(id);
+                let idx = $crate::Idx::index(id);
                 assert!(idx < self.len as usize, "index out of bounds");
                 idx
             }
@@ -223,14 +223,14 @@ macro_rules! multi_index_vec {
                 #[inline]
                 #[allow(dead_code)]
                 $fvis unsafe fn $fname_unchecked(&self, id: $idx) -> &$fty {
-                    let idx = ::oxc_index::Idx::index(id);
+                    let idx = $crate::Idx::index(id);
                     unsafe { &*self.$fname.as_ptr().add(idx) }
                 }
 
                 #[inline]
                 #[allow(dead_code)]
                 $fvis unsafe fn $fname_mut_unchecked(&mut self, id: $idx) -> &mut $fty {
-                    let idx = ::oxc_index::Idx::index(id);
+                    let idx = $crate::Idx::index(id);
                     unsafe { &mut *self.$fname.as_ptr().add(idx) }
                 }
             )*

@@ -21,7 +21,7 @@ mod generated {
 
 use generated::ast_payload::NodePayload;
 use node_id::ExtraData;
-use swc_next_allocator::{Allocator, hash_map::HashMap as ArenaHashMap, vec::Vec as ArenaVec};
+use swc_next_allocator::{Allocator, Idx, hash_map::HashMap as ArenaHashMap, vec::Vec as ArenaVec};
 
 pub use ast::*;
 pub use comment::*;
@@ -30,7 +30,6 @@ pub use diagnostic::*;
 pub use generated::ast_node::*;
 pub use generated::ast_visitor::*;
 pub use node_id::{AstNode, ExtraDataId, ExtraDataValue, NodeId, SubRange};
-pub use oxc_index::Idx;
 pub use semantic::{ReferenceId, ScopeId, SymbolId};
 pub use strings::{AstUtf8, AstWtf8};
 pub use syntax::*;
